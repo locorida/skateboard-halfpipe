@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skateboard Halfpipe</title>
+<meta name="description" content="Small 3D skateboard and stunt scooter game on canvas: pump for speed, spin, flip and grab in a halfpipe. Plain JavaScript, no dependencies.">
+<style>
+  :root { --bg: #eef3ef; --surface: #ffffff; --text: #1d2a22; --muted: #55625a; --accent: #2f6b45; --accent-text: #ffffff; --border: #c2d0c6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #101b17; --surface: #1a2722; --text: #e6eee9; --muted: #a9b8af; --accent: #6fbf8c; --accent-text: #0e1a14; --border: #34463d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.55; }
+  main { max-width: 1000px; margin: 0 auto; padding: 16px 16px 24px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: clamp(1.4rem, 4vw, 1.9rem); margin: 8px 0; }
+  .lang { display: flex; gap: 4px; }
+  .lang a { color: var(--muted); text-decoration: none; padding: 2px 8px; border-radius: 6px; font-size: .9rem; }
+  .lang a[aria-current="true"] { color: var(--text); font-weight: 600; background: var(--surface); }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0 12px; }
+  button { font: inherit; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+  button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:focus-visible, canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .stage { border-radius: 12px; overflow: hidden; box-shadow: 0 4px 18px rgba(0, 0, 0, .18); }
+  canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .touch { display: none; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 10px; }
+  .touch button { border-radius: 10px; padding: 16px 0; font-size: 1.15rem; touch-action: none; user-select: none; -webkit-user-select: none; }
+  @media (hover: none) and (pointer: coarse) { .touch { display: grid; } }
+  .help { color: var(--muted); font-size: .95rem; margin-top: 16px; }
+  .help p { margin: 0 0 8px; }
+  .help strong { color: var(--text); }
+  kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); color: var(--text); font-size: .85em; }
+  footer { text-align: center; padding: 8px 16px 20px; font-size: .85rem; color: var(--muted); }
+  footer a { color: inherit; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 data-i18n="title">Skateboard Halfpipe</h1>
+    <nav class="lang" aria-label="Language / Sprache">
+      <a href="?lang=en" hreflang="en" lang="en" data-lang="en">English</a>
+      <a href="?lang=de" hreflang="de" lang="de" data-lang="de">Deutsch</a>
+    </nav>
+  </header>
+  <div class="bar" role="group" aria-labelledby="veh-label">
+    <span id="veh-label" data-i18n="vehicle"></span>
+    <button type="button" data-veh="skate" aria-pressed="true" data-i18n="skate"></button>
+    <button type="button" data-veh="scooter" aria-pressed="false" data-i18n="scooter"></button>
+  </div>
+  <div class="stage"><canvas id="halfpipe" width="960" height="540" tabindex="0" role="img"></canvas></div>
+  <p id="halfpipe-status" class="visually-hidden" role="status" aria-live="polite"></p>
+  <div class="touch" aria-hidden="true">
+    <button type="button" data-k="left">⟲</button>
+    <button type="button" data-k="down">▼</button>
+    <button type="button" data-k="jump" data-i18n="jump"></button>
+    <button type="button" data-k="up">▲</button>
+    <button type="button" data-k="right">⟳</button>
+  </div>
+  <div class="help">
+    <p data-i18n-html="help1"></p>
+    <p data-i18n-html="help2"></p>
+    <p data-i18n-html="help3"></p>
+    <p data-i18n-html="help4"></p>
+  </div>
+</main>
+<footer><a href="https://github.com/locorida/skateboard-halfpipe" data-i18n="source"></a> · MIT</footer>
+
+<script>
+(function () {
+  'use strict';
+  const TEXTS = {
+    en: {
+      title: 'Skateboard Halfpipe', vehicle: 'Ride:', skate: 'Skateboard', scooter: 'Stunt scooter', jump: 'Jump', source: 'Source code on GitHub',
+      canvas: 'Halfpipe game: skateboard or stunt scooter. Pump for speed, then spin, flip and grab in the air.',
+      help1: '<strong>Speed:</strong> hold <kbd>↓</kbd> while riding down a wall (crouch, the bar top right fills up) and let go in the bottom curve (stand up). Good timing shows “Pump!” and gives speed. Holding <kbd>↓</kbd> all the time slows you down uphill.',
+      help2: '<strong>In the air:</strong> <kbd>←</kbd><kbd>→</kbd> spin, <kbd>↑</kbd> kickflip / tailwhip, <kbd>↓</kbd> grab. Land straight (spins in steps of 180°, flip finished) or you bail.',
+      help3: '<strong>Funbox:</strong> you roll over it. Press <kbd>Space</kbd> (ollie) on the ramp to jump it, at the cost of some speed. On flat ground <kbd>←</kbd><kbd>→</kbd> push.',
+      help4: '60 seconds per session. Tricks in a row build up a combo (up to ×5). <kbd>Space</kbd> or tap to drop in. On touch screens use the buttons below the game.',
+      game: { title: 'Skateboard Halfpipe', start: 'Space or tap: drop in', sub: '60 seconds, as many tricks as you can',
+        over: 'Session over', points: 'Points', time: 'Time', combo: 'Combo', record: 'Best', newRecord: 'New record!',
+        again: 'Space or tap: again', bail: 'Bail!', bailSub: 'land straight', pump: 'Pump!',
+        hint: 'Hold ↓ riding down, let go at the bottom = speed', air: 'Air', grab: 'Grab', tuck: 'Tuck',
+        flip: 'Kickflip', whip: 'Tailwhip', double: 'Double ' }
+    },
+    de: {
+      title: 'Skateboard Halfpipe', vehicle: 'Fahrzeug:', skate: 'Skateboard', scooter: 'Stunt-Scooter', jump: 'Sprung', source: 'Quellcode auf GitHub',
+      canvas: 'Halfpipe-Spiel: Skateboard oder Stunt-Scooter. Schwung holen durch Pumpen, in der Luft Drehungen, Flips und Grabs.',
+      help1: '<strong>Schwung holen:</strong> Beim Herunterfahren einer Wand <kbd>↓</kbd> halten (in die Hocke, der Balken oben rechts lädt), unten im Bogen loslassen (strecken). Gut getroffen gibt es „Pump!“ und mehr Tempo. Wer <kbd>↓</kbd> dauernd hält, wird bergauf langsamer.',
+      help2: '<strong>In der Luft:</strong> <kbd>←</kbd><kbd>→</kbd> drehen, <kbd>↑</kbd> Kickflip / Tailwhip, <kbd>↓</kbd> Grab. Gerade landen (Drehung in 180°-Schritten, Flip fertig), sonst Sturz.',
+      help3: '<strong>Funbox:</strong> rollt man drüber. Mit <kbd>Leertaste</kbd> (Ollie) an der Rampe springst du drüber, das kostet aber Schwung. Am Boden schieben <kbd>←</kbd><kbd>→</kbd> an.',
+      help4: '60 Sekunden pro Session, Tricks hintereinander geben Kombo-Bonus (bis ×5). <kbd>Leertaste</kbd> oder Tippen: Drop-in. Auf Touch-Geräten die Knöpfe unter dem Spiel.',
+      game: {}
+    }
+  };
+  const param = new URLSearchParams(location.search).get('lang');
+  const lang = TEXTS[param] ? param : ((navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en');
+  const t = TEXTS[lang];
+  document.documentElement.lang = lang;
+  document.title = t.title;
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t[el.dataset.i18n]; });
+  document.querySelectorAll('[data-i18n-html]').forEach((el) => { el.innerHTML = t[el.dataset.i18nHtml]; });
+  document.querySelectorAll('[data-lang]').forEach((a) => a.setAttribute('aria-current', String(a.dataset.lang === lang)));
+  const canvas = document.getElementById('halfpipe');
+  canvas.dataset.texts = JSON.stringify(t.game);
+  canvas.setAttribute('aria-label', t.canvas);
+})();
+</script>
+<script src="halfpipe.js"></script>
+<script>
+(function () {
+  'use strict';
+  const HP = window.Halfpipe;
+  document.querySelectorAll('.touch button').forEach((bt) => {
+    const k = bt.dataset.k;
+    bt.addEventListener('pointerdown', (e) => { e.preventDefault(); bt.setPointerCapture(e.pointerId); HP.press(k, true); });
+    ['pointerup', 'pointercancel'].forEach((type) => bt.addEventListener(type, () => HP.press(k, false)));
+  });
+  document.querySelectorAll('[data-veh]').forEach((bt) => bt.addEventListener('click', () => {
+    HP.setVehicle(bt.dataset.veh);
+    document.querySelectorAll('[data-veh]').forEach((o) => o.setAttribute('aria-pressed', String(o === bt)));
+    document.getElementById('halfpipe').focus();
+  }));
+})();
+</script>
+</body>
+</html>

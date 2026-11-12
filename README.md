@@ -1,0 +1,56 @@
+# Skateboard Halfpipe
+
+A small 3D halfpipe game on canvas. Ride a skateboard or a stunt scooter, pump for speed, fly over the coping and land spins, kickflips, tailwhips and grabs. One session lasts 60 seconds.
+
+**[Play it in the browser](https://locorida.github.io/skateboard-halfpipe/)** · English and German · keyboard and touch
+
+![Screenshot](docs/shot.png)
+
+## Features
+
+- **3D without a library.** About 500 lines of plain JavaScript: a small perspective projection, a painter's algorithm for the ramp surfaces and simple flat shading. The camera follows the rider and rises with big airs. No WebGL, no images, no build step.
+- **Real pumping.** Speed doesn't come from a button. Crouch while riding down a wall, stand up in the bottom curve, and the timing decides how much speed you gain. Staying crouched uphill costs speed, so mashing ↓ doesn't work.
+- **Physics in metres.** The rider moves along the ramp profile (3.2 m transitions, a funbox in the middle), flies ballistically after an ollie and goes straight up over the coping. Gravity, rolling resistance and drag are real; landings are a bit forgiving, like bending your knees.
+- **Tricks and combos.** Spins in steps of 180°, kickflips (skateboard) or tailwhips (scooter), grabs. Land straight with the flip finished or you bail. Tricks in a row build up a combo up to ×5.
+- **Accessible where it can be.** Keyboard controls, focusable canvas, on-screen buttons on touch devices, and an `aria-live` region that announces tricks, bails and the final score. Light and dark page theme.
+- **Best score** saved in `localStorage` (optional; the game works without it).
+
+## Controls
+
+| Action | Keyboard | Touch |
+|---|---|---|
+| Drop in / ollie | Space | Tap the game or *Jump* |
+| Pump (hold riding down, release at the bottom) | ↓ or S | ▼ |
+| Spin in the air | ← → (A D) | ⟲ ⟳ |
+| Kickflip / tailwhip | ↑ or W | ▲ |
+| Grab | hold ↓ in the air | ▼ |
+| Push on flat ground | ← → | ⟲ ⟳ |
+
+## Tested balance
+
+`npm test` runs `sim/balance.js`: bots play the real game code (loaded with a stubbed DOM) for full sessions, with different play styles and human-like timing errors, and the run fails if the game doesn't behave as intended:
+
+```
+idle            first air over coping    – | max height 0.0 m | score     0 | bails 0
+holds down      first air over coping    – | max height 0.0 m | score     0 | bails 0
+pumps, exact    first air over coping  3.3 s | max height 2.5 m | score  2149 | bails 0
+pumps, ±0.2 s   first air over coping  3.4 s | max height 2.5 m | score  1869 | bails 0
+tricks, good    first air over coping  3.3 s | max height 2.5 m | score 19018 | bails 1
+tricks, sloppy  first air over coping  3.3 s | max height 2.4 m | score  5413 | bails 3
+```
+
+The simulation found the main tuning problem: the funbox used to launch riders automatically and ate about a third of their speed on every pass, so pumping never paid off. Now you roll over it unless you ollie.
+
+Requires Node 18 or newer, no `npm install` needed. It runs on every push via GitHub Actions and takes about a second.
+
+## Run locally
+
+Open `index.html` in a browser. `?lang=en` or `?lang=de` picks the language (otherwise the browser language decides).
+
+## Embedding
+
+The game needs a `<canvas id="halfpipe" width="960" height="540">` and optionally a status element `#halfpipe-status` with `aria-live`. Texts can be passed as JSON in `data-texts` on the canvas (German is the default). Load `halfpipe.js`; `window.Halfpipe.setVehicle('skate' | 'scooter')` switches the ride and `window.Halfpipe.press(key, down)` wires up your own touch buttons. See `index.html`.
+
+## License
+
+[MIT](LICENSE)
