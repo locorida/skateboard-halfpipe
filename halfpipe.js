@@ -24,7 +24,7 @@
         hint: '↓ halten beim Runterfahren, unten loslassen = Schwung', air: 'Air', grab: 'Grab', tuck: 'Tuck',
         flip: 'Kickflip', whip: 'Tailwhip', double: 'Doppel-',
         titleStreet: 'Street-Session', fifty: '50-50', fiveO: '5-0', boardslide: 'Boardslide', grind: 'Grind', feeble: 'Feeble',
-        hintStreet: 'Leertaste vor dem Rail = Ollie drauf, dann mit ← → die Balance halten',
+        hintStreet: 'Leertaste vor dem Rail = Ollie drauf, dann mit ← → die Balance halten', woof: 'Wuff!',
     }, JSON.parse((cv.dataset && cv.dataset.texts) || '{}'));
 
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -35,9 +35,21 @@
     // ZW: halbe Tiefe, DECK: Plattform hinter der Kante, rails: Rails und Ledges hinter der Fahrlinie (z < 0) zum Grinden
     const PARKS = {
         pipe: { R: 3.2, W: 6, KA: 1.0, KB: 2.6, KH: 0.8, ZW: 3.2, DECK: 2.2, rails: [], best: 'halfpipe-best',
+            // nur ein paar Kritzeleien mit dem Edding auf dem Holz
+            graffiti: [
+                { t: 'ollie!', tag: '#1a1a1a', x0: -10.6, x1: -9.3, y0: 1.45, y1: 2.15, rot: -0.12 },
+                { t: 'HARZ 26', tag: '#f4f1e8', x0: -0.9, x1: 0.9, y0: 0.12, y1: 0.66, rot: 0.04 },
+                { t: 'zeke', tag: '#b8261c', x0: 8.9, x1: 10.6, y0: 0.25, y1: 0.95, rot: 0.1 },
+            ],
             wall: [222, 196, 150], flat: [200, 202, 198], box: [176, 182, 190], side: '#a8875a', sideLine: '#7a5a33', deck: [222, 196, 150] },
         street: { R: 2.6, W: 9, KA: 0.7, KB: 1.9, KH: 0.55, ZW: 3.6, DECK: 1.8, best: 'halfpipe-best-street',
             rails: [{ x0: -7, x1: -2.8, h: 0.5, z: -1, type: 'rail' }, { x0: 2.8, x1: 7, h: 0.42, z: -1.1, type: 'ledge' }],
+            // Graffiti auf den Seitenwänden vorne (Quarters und Funbox); crowd: Skater vor der Rückwand, die zuschauen
+            graffiti: [
+                { t: 'SHRED', c: 'pink', x0: -12.9, x1: -10.7, y0: 0.08, y1: 1.0, rot: -0.06 },
+                { t: 'HARZ', c: 'cyan', x0: 10.7, x1: 12.9, y0: 0.08, y1: 1.0, rot: 0.05 },
+                { t: 'GNAR', c: 'green', x0: -0.8, x1: 0.8, y0: 0.02, y1: 0.55, rot: -0.03 },
+            ],
             wall: [190, 192, 194], flat: [178, 180, 182], box: [160, 164, 170], side: '#8d9196', sideLine: '#62676c', deck: [168, 172, 176] },
     };
     const G = 9.81;
@@ -99,6 +111,7 @@
     function loadBest() { best = 0; try { best = parseInt(localStorage.getItem(park.best), 10) || 0; } catch (e) { /* ohne Speicher eben ohne Rekord */ } }
     let st = {};
     const pops = [];
+    let clock = 0, cheer = 0, ooh = 0; // Zuschauer: Uhr für die Animation, Jubel (s), Schreck nach einem Sturz (s)
     function reset() {
         st = { mode: 'ready', s: 0.02, v: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, side: -1, h: 0, yaw: 0, yaw0: 0,
             flipT: 0, flips: 0, grab: false, grabT: 0, pitch: 0, tA: 0, T: 1, maxH: 0, crouch: 0, bailT: 0,
@@ -119,7 +132,7 @@
         if (st.score > best) { best = st.score; st.newBest = st.score > 0; try { localStorage.setItem(park.best, String(best)); } catch (e) { /* egal */ } }
         announce(`${TXT.over}: ${st.score} ${TXT.points}. ${st.newBest ? TXT.newRecord : TXT.record + ': ' + best + '.'} ${TXT.again}`);
     }
-    function bail() { st.mode = 'bail'; st.bailT = 0; st.combo = 0; st.grab = false; st.rail = null; st.bails++; pop(TXT.bail, TXT.bailSub); announce(TXT.bail); }
+    function bail() { ooh = 1.3; cheer = 0; st.mode = 'bail'; st.bailT = 0; st.combo = 0; st.grab = false; st.rail = null; st.bails++; pop(TXT.bail, TXT.bailSub); announce(TXT.bail); }
 
     // Drehung muss in Schritten von step stehen (Landung: 180°, Rail: 90° = quer), Flip fertig sein. null = Sturz
     function checkSpin(step, tol) {
@@ -145,6 +158,7 @@
         const label = parts.join(' + ');
         pop(label, pts + (mult > 1 ? ' × ' + mult : ''));
         announce(`${label}: ${pts * mult}`);
+        cheer = Math.max(cheer, Math.min(3, 1.2 + pts * mult / 800)); ooh = 0; // Zuschauer klatschen, bei großen Tricks länger
     }
 
     // Landung: Drehung in 180°-Schritten (±40°)
@@ -211,6 +225,7 @@
         for (const p of pops) p.t += dt;
         while (pops.length && pops[0].t > 2.2) pops.shift();
         st.pumpFlash = Math.max(0, st.pumpFlash - dt);
+        clock += dt; cheer = Math.max(0, cheer - dt); ooh = Math.max(0, ooh - dt);
         if (st.mode === 'ready' || st.mode === 'over') return;
         st.time = Math.max(0, st.time - dt);
         // Rails stehen hinter der Fahrlinie: beim Grinden rückt der Fahrer nach hinten, danach wieder nach vorn
@@ -381,15 +396,59 @@
         { name: 'SHRED SOCIETY', bg: '#1c8c7a', fg: '#0d1512' },
         { name: 'KICKTAIL CO.', bg: '#f2c230', fg: '#1d1d1d', bar: '#1d1d1d' },
     ];
-    // Banner als Rechteck in der Ebene z = const; die Perspektive dort ist praktisch affin
-    function banner(x0, x1, y0, y1, z, b) {
+    // Rechteck in der Ebene z = const als lokales Koordinatensystem uw × uh (die Perspektive dort ist praktisch affin)
+    function plane(x0, x1, y0, y1, z, uw, uh) {
         const a = proj(x0, y1, z), c = proj(x1, y1, z), d = proj(x0, y0, z);
+        ctx.transform((c[0] - a[0]) / uw, (c[1] - a[1]) / uw, (d[0] - a[0]) / uh, (d[1] - a[1]) / uh, a[0], a[1]);
+    }
+    function banner(x0, x1, y0, y1, z, b) {
         ctx.save();
-        ctx.transform((c[0] - a[0]) / 100, (c[1] - a[1]) / 100, (d[0] - a[0]) / 20, (d[1] - a[1]) / 20, a[0], a[1]);
+        plane(x0, x1, y0, y1, z, 100, 20);
         ctx.fillStyle = b.bg; ctx.fillRect(0, 0, 100, 20);
         if (b.bar) { ctx.fillStyle = b.bar; ctx.fillRect(0, 16.5, 100, 3.5); }
         ctx.fillStyle = b.fg; ctx.font = '900 13px Impact, "Arial Black", system-ui, sans-serif'; ctx.textAlign = 'center';
         ctx.fillText(b.name, 50, b.bar ? 13.5 : 14.5, 92);
+        ctx.restore();
+    }
+    // Graffiti: Schriftzug mit schwarzer Kontur, farbigem Rand, Farbwolke dahinter und Farbnasen
+    const SPRAY = {
+        pink: ['#ff4fa3', '#2b1a5e', 'rgba(120,200,255,.55)'], cyan: ['#35d0ff', '#0f2a4a', 'rgba(255,230,90,.55)'],
+        yellow: ['#ffd23a', '#7a1f1f', 'rgba(255,90,90,.5)'], green: ['#7cff6b', '#14361a', 'rgba(180,140,255,.5)'],
+        orange: ['#ff7a2e', '#2a1408', 'rgba(60,200,180,.5)'], lilac: ['#c49bff', '#1d1238', 'rgba(255,150,200,.5)'],
+    };
+    // Tag: schnell hingekritzelt, einfarbig, mit Schwung darunter
+    function scribble(g, z) {
+        const uh = 100 * (g.y1 - g.y0) / (g.x1 - g.x0), fs = uh * 0.62;
+        ctx.save();
+        plane(g.x0, g.x1, g.y0, g.y1, z, 100, uh);
+        ctx.translate(50, uh / 2); ctx.rotate(g.rot || 0); ctx.transform(1, 0, -0.25, 1, 0, 0); // schräg wie Handschrift
+        ctx.font = `italic 700 ${fs.toFixed(1)}px "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = g.tag; ctx.fillText(g.t, 0, 0, 88);
+        ctx.strokeStyle = g.tag; ctx.lineWidth = Math.max(1, fs * 0.07); ctx.lineCap = 'round'; ctx.beginPath();
+        ctx.moveTo(-40, fs * 0.5); ctx.quadraticCurveTo(0, fs * 0.75, 44, fs * 0.36); ctx.stroke();
+        ctx.restore();
+    }
+    function graffito(g, z) {
+        if (g.tag) return scribble(g, z);
+        const [fill, line, cloud] = SPRAY[g.c], uh = 100 * (g.y1 - g.y0) / (g.x1 - g.x0), fs = uh * 0.78;
+        let h = 0; for (const ch of g.t) h = (h * 31 + ch.charCodeAt(0)) % 9973; // fester Zufall je Schriftzug
+        const r = () => (h = (h * 16807) % 2147483647) / 2147483647;
+        ctx.save();
+        plane(g.x0, g.x1, g.y0, g.y1, z, 100, uh);
+        ctx.translate(50, uh / 2); ctx.rotate(g.rot || 0);
+        ctx.fillStyle = cloud;
+        for (let k = 0; k < 7; k++) { ctx.beginPath(); ctx.ellipse(-42 + k * 14, (r() - 0.5) * fs * 0.4, 10 + r() * 8, fs * (0.45 + r() * 0.25), 0, 0, 7); ctx.fill(); }
+        ctx.font = `900 ${fs.toFixed(1)}px "Arial Black", Impact, system-ui, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+        ctx.strokeStyle = '#141414'; ctx.lineWidth = fs * 0.36; ctx.strokeText(g.t, 0, 0, 90);
+        ctx.strokeStyle = line; ctx.lineWidth = fs * 0.2; ctx.strokeText(g.t, 0, 0, 90);
+        ctx.fillStyle = fill; ctx.fillText(g.t, 0, 0, 90);
+        ctx.strokeStyle = fill; ctx.lineWidth = Math.max(1, fs * 0.06); ctx.lineCap = 'round'; ctx.beginPath();
+        for (let k = 0; k < 5; k++) { const x = -38 + r() * 76, y = fs * 0.42; ctx.moveTo(x, y); ctx.lineTo(x, y + fs * (0.15 + r() * 0.45)); }
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,.8)'; // Glanzpunkte
+        for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(-34 + r() * 68, -fs * 0.2, fs * 0.05, 0, 7); ctx.fill(); }
         ctx.restore();
     }
     function bannerRow(x0, x1, y0, y1, z, first, poles) {
@@ -403,6 +462,129 @@
             }
             banner(a, b, y0, y1, z, BRANDS[(first + i) % BRANDS.length]);
         }
+    }
+
+    // Zuschauer: Skater vor der Rückwand, manche mit Board. Sie klatschen nach Tricks (versetzt, nicht im Takt),
+    // reißen bei großen Tricks die Arme hoch und springen, nach einem Sturz Hände an den Kopf.
+    function makeCrowd(spots) {
+        const shirts = ['#d33b2f', '#1f2d4d', '#f2c230', '#1c8c7a', '#111111', '#c2187a', '#e8e4da', '#6b4fa0'];
+        const pants = ['#2b3440', '#3a5a8c', '#1d1d1d', '#6b6256', '#4a4f55'];
+        const skins = ['#f0c8a0', '#d9a77c', '#a8714a', '#7a4a2c', '#f5d6b8'];
+        const tops = ['#111111', '#d33b2f', '#3a2a1a', '#e8ff3a', '#1f2d4d', null];
+        const list = spots.map(([x, dz]) => ({ x: x + (rnd() - 0.5) * 0.4, dz: dz + (rnd() - 0.5) * 0.5, k: 0.88 + rnd() * 0.2, ph: rnd() * 7,
+            shirt: shirts[(rnd() * shirts.length) | 0], pants: pants[(rnd() * pants.length) | 0], skin: skins[(rnd() * skins.length) | 0],
+            top: tops[(rnd() * tops.length) | 0], board: rnd() < 0.45, deck: ['#3b2a1a', '#d33b2f', '#1c8c7a', '#f2c230'][(rnd() * 4) | 0], wild: rnd() < 0.5 }));
+        return list.sort((a, b) => a.dz - b.dz);
+    }
+    // Streetpark: vor der Mauer. Halfpipe: oben auf den Plattformen, links einer, rechts zwei, hinter der Fahrlinie
+    const CROWD = makeCrowd([-8.4, -7.6, -5.2, -4.5, -1.6, 0.9, 1.7, 4.4, 6.3, 7.1, 8.6].map((x) => [x, 0]));
+    const DECK_CROWD = makeCrowd([[-10.3, -2.3], [9.8, -2.4], [10.5, -1.7]]);
+    function drawCrowd(people, z0, y0) {
+        const seg = (a, b, col, w) => { ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, w * FOCAL / a[2]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); };
+        const blob = (a, r, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(a[0], a[1], Math.max(1, r * FOCAL / a[2]), 0, 7); ctx.fill(); };
+        ctx.lineCap = 'round';
+        for (const c of people) {
+            const z = z0 + c.dz, k = c.k, t = clock + c.ph;
+            const big = cheer > 1.6 && c.wild, lift = big ? Math.abs(Math.sin(t * 7)) * 0.18 : 0;
+            const P3 = (dx, y, dz) => proj(c.x + dx, y0 + y + lift, z + (dz || 0));
+            if (c.board) { // Board hochkant daneben
+                const a = proj(c.x + 0.38, y0 + 0.02, z), b = proj(c.x + 0.42, y0 + 0.8 * k, z);
+                seg(a, b, c.deck, 0.07); blob(proj(c.x + 0.33, y0 + 0.12, z + 0.05), 0.03, '#f2efe6'); blob(proj(c.x + 0.36, y0 + 0.7 * k, z + 0.05), 0.03, '#f2efe6');
+            }
+            const hip = P3(0, 0.82 * k), neck = P3(0, 1.32 * k), head = P3(0, 1.48 * k);
+            const sL = P3(-0.15, 1.28 * k), sR = P3(0.15, 1.28 * k);
+            seg(P3(-0.11, 0), hip, c.pants, 0.11); seg(P3(0.11, 0), hip, c.pants, 0.11);
+            seg(hip, neck, c.shirt, 0.2);
+            let hL, hR;
+            if (ooh > 0) { hL = P3(-0.12, 1.6 * k, 0.05); hR = P3(0.12, 1.6 * k, 0.05); } // „Uff!“
+            else if (big) { hL = P3(-0.3, 1.85 * k); hR = P3(0.3, 1.85 * k); } // Arme hoch
+            else if (cheer > 0) { const o = 0.03 + 0.11 * Math.abs(Math.sin(t * 13)); hL = P3(-o, 1.12 * k, 0.22); hR = P3(o, 1.12 * k, 0.22); } // klatschen
+            else { const sw = Math.sin(t * 1.3) * 0.03; hL = P3(-0.22 + sw, 0.86 * k); hR = c.board ? P3(0.36, 0.78 * k) : P3(0.22 + sw, 0.86 * k); }
+            seg(sL, hL, c.shirt, 0.07); seg(sR, hR, c.shirt, 0.07); blob(hL, 0.04, c.skin); blob(hR, 0.04, c.skin);
+            blob(head, 0.11, c.skin);
+            if (c.top) blob(P3(0, 1.53 * k), 0.095, c.top); // Mütze oder Haare
+        }
+    }
+
+    // Mountainbike, vorne links an die Seitenwand der Halfpipe gelehnt (Seitenansicht in der Ebene z)
+    function drawBike(x, z) {
+        const P = (dx, y) => proj(x + dx, y, z), s = FOCAL / P(0, 0)[2];
+        const bar = (a, b, col, w) => { const p = P(a[0], a[1]), q = P(b[0], b[1]); ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, w * s); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); };
+        const wheel = (dx) => {
+            const c = P(dx, 0.36);
+            ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = Math.max(2, 0.07 * s); ctx.beginPath(); ctx.arc(c[0], c[1], 0.33 * s, 0, 7); ctx.stroke(); // Stollenreifen
+            ctx.strokeStyle = '#2e2e2e'; ctx.setLineDash([Math.max(1, 0.03 * s), Math.max(1, 0.035 * s)]); ctx.lineWidth = Math.max(1, 0.03 * s);
+            ctx.beginPath(); ctx.arc(c[0], c[1], 0.375 * s, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+            ctx.strokeStyle = 'rgba(190,195,200,.8)'; ctx.lineWidth = 1; ctx.beginPath(); // Speichen
+            for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; ctx.moveTo(c[0], c[1]); ctx.lineTo(c[0] + Math.cos(a) * 0.3 * s, c[1] + Math.sin(a) * 0.3 * s); }
+            ctx.stroke();
+            ctx.fillStyle = '#9aa3a8'; ctx.beginPath(); ctx.arc(c[0], c[1], Math.max(1.5, 0.04 * s), 0, 7); ctx.fill();
+        };
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        wheel(-0.55); wheel(0.55);
+        const BB = [-0.05, 0.33], SEAT = [-0.2, 0.86], HEAD = [0.4, 0.9], REAR = [-0.55, 0.36], FRONT = [0.55, 0.36];
+        const frame = '#ff6a13';
+        bar(REAR, BB, frame, 0.045); bar(REAR, [-0.24, 0.78], frame, 0.04);       // Kettenstrebe, Sitzstrebe
+        bar(BB, SEAT, frame, 0.06); bar(BB, HEAD, frame, 0.07); bar([-0.22, 0.8], HEAD, frame, 0.06); // Sitzrohr, Unterrohr, Oberrohr
+        bar([-0.12, 0.62], [-0.32, 0.6], '#1b1b1b', 0.05);                      // Dämpfer hinten
+        bar(HEAD, [0.48, 0.6], '#d8dde0', 0.055); bar([0.48, 0.6], FRONT, '#1b1b1b', 0.045); // Federgabel
+        bar(HEAD, [0.36, 1.02], '#1b1b1b', 0.04); bar([0.25, 1.04], [0.47, 1.0], '#1b1b1b', 0.035); // Vorbau, Lenker
+        bar(SEAT, [-0.22, 0.95], '#1b1b1b', 0.03); bar([-0.34, 0.97], [-0.1, 0.96], '#1b1b1b', 0.06); // Sattelstütze, Sattel
+        const c = P(BB[0], BB[1]); ctx.strokeStyle = '#555'; ctx.lineWidth = Math.max(1, 0.02 * s); ctx.beginPath(); ctx.arc(c[0], c[1], 0.09 * s, 0, 7); ctx.stroke(); // Kettenblatt
+        bar(BB, [0.1, 0.2], '#1b1b1b', 0.03); bar([0.06, 0.2], [0.16, 0.2], '#333', 0.04); // Kurbel, Pedal
+    }
+
+    // Schwarz-weißer Hund: trabt vor den Zuschauern hin und her, wedelt, hüpft und bellt nach Tricks
+    function drawDog(z) {
+        const walk = Math.sin(clock * 0.22), f = Math.cos(clock * 0.22) >= 0 ? 1 : -1; // Blickrichtung = Laufrichtung
+        const x = -3 + walk * 2.4, moving = Math.abs(Math.cos(clock * 0.22)) > 0.15 && !cheer;
+        const lift = cheer > 0 ? Math.abs(Math.sin(clock * 9)) * 0.14 : 0;
+        const P3 = (dx, y) => proj(x + f * dx, y + lift, z), s = FOCAL / P3(0, 0)[2];
+        const ell = (dx, y, rx, ry, col, rot) => { const p = P3(dx, y); ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(p[0], p[1], rx * s, ry * s, (rot || 0) * -f, 0, 7); ctx.fill(); };
+        const leg = (dx, ph, col) => {
+            const sw = moving ? Math.sin(clock * 10 + ph) * 0.06 : 0, a = P3(dx, 0.3), b = P3(dx + sw, lift ? 0.04 : 0);
+            ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 0.05 * s); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        };
+        ctx.lineCap = 'round';
+        leg(-0.2, 0, '#222'); leg(0.17, Math.PI, '#f4f4f0'); // hintere Beine (weiter weg)
+        const wag = Math.sin(clock * (cheer ? 22 : 7)) * 0.09; // Schwanz
+        const t0 = P3(-0.27, 0.42), t1 = P3(-0.44, 0.6 + wag), t2 = P3(-0.48, 0.66 + wag * 1.2);
+        ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = Math.max(1, 0.045 * s); ctx.beginPath(); ctx.moveTo(t0[0], t0[1]); ctx.lineTo(t1[0], t1[1]); ctx.stroke();
+        ctx.strokeStyle = '#f4f4f0'; ctx.beginPath(); ctx.moveTo(t1[0], t1[1]); ctx.lineTo(t2[0], t2[1]); ctx.stroke();
+        ell(0, 0.38, 0.3, 0.12, '#f4f4f0');            // Körper weiß
+        ell(-0.07, 0.43, 0.17, 0.08, '#1a1a1a', 0.1);  // schwarzer Fleck auf dem Rücken
+        ell(0.2, 0.36, 0.07, 0.06, '#1a1a1a');         // Fleck an der Schulter
+        leg(-0.17, Math.PI, '#1a1a1a'); leg(0.2, 0, '#f4f4f0'); // vordere Beine
+        ell(0.3, 0.53, 0.1, 0.09, '#1a1a1a');          // Kopf schwarz
+        ell(0.39, 0.49, 0.07, 0.045, '#f4f4f0');       // weiße Schnauze
+        ell(0.46, 0.5, 0.022, 0.018, '#111');          // Nase
+        ell(0.33, 0.56, 0.018, 0.018, '#f4f4f0');      // Auge
+        ell(0.25, 0.58, 0.04, 0.07, '#111', 0.5);      // Ohr
+        if (cheer > 0 && Math.sin(clock * 4) > 0.2) txt(TXT.woof, P3(0.55, 0.85)[0], P3(0.55, 0.85)[1], 13, f > 0 ? 'left' : 'right', '#1d2a22');
+    }
+
+    // Backsteinmauer: Ziegel 0.5 × 0.25 m im Läuferverband, einzelne Steine dunkler, oben eine Betonabdeckung
+    const BRICK_W = 0.5, BRICK_H = 0.25, DARK_BRICKS = [];
+    for (let i = 0; i < 140; i++) DARK_BRICKS.push({ c: (rnd() * 72) | 0, r: (rnd() * 10) | 0, s: rnd() < 0.5 ? '#8a3f2c' : '#b0563b' });
+    function drawBrickWall(x0, x1, h, z) {
+        ctx.fillStyle = '#9e4a33'; path([[x0, 0, z], [x1, 0, z], [x1, h, z], [x0, h, z]]); ctx.fill();
+        const rows = Math.floor(h / BRICK_H);
+        for (const b of DARK_BRICKS) {
+            if (b.r >= rows) continue;
+            const bx = x0 + b.c * BRICK_W + (b.r % 2 ? BRICK_W / 2 : 0), by = b.r * BRICK_H;
+            if (bx + BRICK_W > x1) continue;
+            ctx.fillStyle = b.s; path([[bx, by, z], [bx + BRICK_W, by, z], [bx + BRICK_W, by + BRICK_H, z], [bx, by + BRICK_H, z]]); ctx.fill();
+        }
+        ctx.strokeStyle = 'rgba(214,204,188,.75)'; ctx.lineWidth = 1; ctx.beginPath();
+        for (let r = 0; r <= rows; r++) { // Lagerfugen
+            const a = proj(x0, r * BRICK_H, z), b = proj(x1, r * BRICK_H, z); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+            if (r === rows) break;
+            for (let x = x0 + (r % 2 ? BRICK_W / 2 : BRICK_W); x < x1; x += BRICK_W) { // Stoßfugen, versetzt
+                const p = proj(x, r * BRICK_H, z), q = proj(x, (r + 1) * BRICK_H, z); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+            }
+        }
+        ctx.stroke();
+        ctx.fillStyle = '#b9b7b1'; path([[x0 - 0.05, h, z + 0.02], [x1 + 0.05, h, z + 0.02], [x1 + 0.05, h + 0.12, z + 0.02], [x0 - 0.05, h + 0.12, z + 0.02]]); ctx.fill();
     }
 
     function drawBackground() {
@@ -421,9 +603,11 @@
             }
             ctx.fillStyle = '#8fa58a'; path([[-110, 0, -46], [110, 0, -46], [110, 0, 9], [-110, 0, 9]]); ctx.fill();
             const zb = -ZW - 1.4; // Rückwand aus Beton, darauf die Banner
-            ctx.fillStyle = '#b4b2ad'; path([[-XMAX - DECK - 2, 0, zb], [XMAX + DECK + 2, 0, zb], [XMAX + DECK + 2, 2.6, zb], [-XMAX - DECK - 2, 2.6, zb]]); ctx.fill();
+            drawBrickWall(-XMAX - DECK - 2, XMAX + DECK + 2, 2.6, zb);
             ctx.fillStyle = '#c4c6c8'; path([[-XMAX - DECK - 2, 0.002, zb], [XMAX + DECK + 2, 0.002, zb], [XMAX + DECK + 2, 0.002, ZW + 1.2], [-XMAX - DECK - 2, 0.002, ZW + 1.2]]); ctx.fill();
             bannerRow(-XMAX - DECK - 1.6, XMAX + DECK + 1.6, 1.0, 2.25, zb + 0.01, 0, false);
+            drawCrowd(CROWD, zb + 0.7, 0);
+            drawDog(zb + 1.05);
             return;
         }
         ctx.fillStyle = '#9fb7a6';
@@ -489,6 +673,11 @@
     function drawSide() {
         const pts = [[-XMAX - DECK, 0, ZW], [-XMAX - DECK, R, ZW], ...P.map((p) => [p.x, p.y, ZW]), [XMAX + DECK, R, ZW], [XMAX + DECK, 0, ZW]];
         path(pts); ctx.fillStyle = park.side; ctx.fill();
+        if (park.graffiti.length) { // Graffiti nur auf der Seitenwand, nicht darüber hinaus
+            ctx.save(); path(pts); ctx.clip();
+            for (const gr of park.graffiti) graffito(gr, ZW + 0.01);
+            ctx.restore();
+        }
         ctx.strokeStyle = 'rgba(70,45,20,.35)'; ctx.lineWidth = 1;
         ctx.beginPath();
         for (let x = -XMAX - DECK + 1.1; x < XMAX + DECK; x += 1.1) {
@@ -636,9 +825,11 @@
         drawBackground();
         drawPipe();
         drawRails();
+        if (parkId === 'pipe') drawCrowd(DECK_CROWD, 0, R);
         drawShadow(b);
         drawRider(b);
         drawSide();
+        if (parkId === 'pipe') drawBike(-8.75, ZW + 0.3);
         drawHud();
     }
 

@@ -8,11 +8,11 @@ A small 3D skate game on canvas with two parks: a wooden halfpipe and a concrete
 
 ## Features
 
-- **3D without a library.** About 700 lines of plain JavaScript: a small perspective projection, a painter's algorithm for the ramp surfaces and simple flat shading. The camera follows the rider and rises with big airs. No WebGL, no images, no build step.
+- **3D without a library.** About 900 lines of plain JavaScript: a small perspective projection, a painter's algorithm for the ramp surfaces and simple flat shading. The camera follows the rider and rises with big airs. No WebGL, no images, no build step.
 - **Real pumping.** Speed doesn't come from a button. Crouch while riding down a wall, stand up in the bottom curve, and the timing decides how much speed you gain. Staying crouched uphill costs speed, so mashing ↓ doesn't work.
 - **Physics in metres.** The rider moves along the ramp profile (3.2 m transitions, a funbox in the middle), flies ballistically after an ollie and goes straight up over the coping. Gravity, rolling resistance and drag are real; landings are a bit forgiving, like bending your knees.
 - **Street park with grinds.** Ollie onto the rail or the ledge: straight for a 50-50 (5-0 on the ledge), turned 90° for a boardslide, feeble or grind on the scooter. You never land perfectly centred, so you steer with ← → to keep your balance, then roll off the end or ollie out.
-- **Banners in the background.** Made-up skate brands on a fence behind the halfpipe and on the back wall of the street park.
+- **Banners, graffiti and a crowd.** Made-up skate brands on a fence behind the halfpipe and on the brick wall of the street park, graffiti on the quarter pipes and the funbox, a few marker tags on the wooden halfpipe. A mountain bike leans against the halfpipe and three people watch from its decks. In the street park a few skaters watch from the wall: they clap after a trick, throw their arms up for big ones and hold their heads after a bail, and a black and white dog trots around, wags its tail and barks.
 - **Tricks and combos.** Spins in steps of 180°, kickflips (skateboard) or tailwhips (scooter), grabs. Land straight with the flip finished or you bail. Tricks in a row build up a combo up to ×5.
 - **Accessible where it can be.** Keyboard controls, focusable canvas, on-screen buttons on touch devices, and an `aria-live` region that announces tricks, bails and the final score. Light and dark page theme.
 - **Best score** saved in `localStorage` (optional; the game works without it).
