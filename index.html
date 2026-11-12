@@ -45,6 +45,11 @@
       <a href="?lang=de" hreflang="de" lang="de" data-lang="de">Deutsch</a>
     </nav>
   </header>
+  <div class="bar" role="group" aria-labelledby="park-label">
+    <span id="park-label" data-i18n="parkLabel"></span>
+    <button type="button" data-park="pipe" aria-pressed="true" data-i18n="parkPipe"></button>
+    <button type="button" data-park="street" aria-pressed="false" data-i18n="parkStreet"></button>
+  </div>
   <div class="bar" role="group" aria-labelledby="veh-label">
     <span id="veh-label" data-i18n="vehicle"></span>
     <button type="button" data-veh="skate" aria-pressed="true" data-i18n="skate"></button>
@@ -64,6 +69,7 @@
     <p data-i18n-html="help2"></p>
     <p data-i18n-html="help3"></p>
     <p data-i18n-html="help4"></p>
+    <p data-i18n-html="help5"></p>
   </div>
 </main>
 <footer><a href="https://github.com/locorida/skateboard-halfpipe" data-i18n="source"></a> · MIT</footer>
@@ -79,11 +85,14 @@
       help2: '<strong>In the air:</strong> <kbd>←</kbd><kbd>→</kbd> spin, <kbd>↑</kbd> kickflip / tailwhip, <kbd>↓</kbd> grab. Land straight (spins in steps of 180°, flip finished) or you bail.',
       help3: '<strong>Funbox:</strong> you roll over it. Press <kbd>Space</kbd> (ollie) on the ramp to jump it, at the cost of some speed. On flat ground <kbd>←</kbd><kbd>→</kbd> push.',
       help4: '60 seconds per session. Tricks in a row build up a combo (up to ×5). <kbd>Space</kbd> or tap to drop in. On touch screens use the buttons below the game.',
+      help5: '<strong>Street park:</strong> two quarter pipes, a rail and a ledge. Ollie shortly before the rail to land on it: straight is a 50-50, turned 90° a boardslide. You land a bit off balance, so steer back with <kbd>←</kbd><kbd>→</kbd> (keep the marker in the middle), then roll off the end or ollie out.',
+      parkLabel: 'Park:', parkPipe: 'Halfpipe', parkStreet: 'Street park',
       game: { title: 'Skateboard Halfpipe', start: 'Space or tap: drop in', sub: '60 seconds, as many tricks as you can',
         over: 'Session over', points: 'Points', time: 'Time', combo: 'Combo', record: 'Best', newRecord: 'New record!',
         again: 'Space or tap: again', bail: 'Bail!', bailSub: 'land straight', pump: 'Pump!',
         hint: 'Hold ↓ riding down, let go at the bottom = speed', air: 'Air', grab: 'Grab', tuck: 'Tuck',
-        flip: 'Kickflip', whip: 'Tailwhip', double: 'Double ' }
+        flip: 'Kickflip', whip: 'Tailwhip', double: 'Double ',
+        titleStreet: 'Street session', hintStreet: 'Space before the rail = ollie onto it, then keep your balance with ← →' }
     },
     de: {
       title: 'Skateboard Halfpipe', vehicle: 'Fahrzeug:', skate: 'Skateboard', scooter: 'Stunt-Scooter', jump: 'Sprung', source: 'Quellcode auf GitHub',
@@ -92,6 +101,8 @@
       help2: '<strong>In der Luft:</strong> <kbd>←</kbd><kbd>→</kbd> drehen, <kbd>↑</kbd> Kickflip / Tailwhip, <kbd>↓</kbd> Grab. Gerade landen (Drehung in 180°-Schritten, Flip fertig), sonst Sturz.',
       help3: '<strong>Funbox:</strong> rollt man drüber. Mit <kbd>Leertaste</kbd> (Ollie) an der Rampe springst du drüber, das kostet aber Schwung. Am Boden schieben <kbd>←</kbd><kbd>→</kbd> an.',
       help4: '60 Sekunden pro Session, Tricks hintereinander geben Kombo-Bonus (bis ×5). <kbd>Leertaste</kbd> oder Tippen: Drop-in. Auf Touch-Geräten die Knöpfe unter dem Spiel.',
+      help5: '<strong>Streetpark:</strong> zwei Quarterpipes, ein Rail und eine Ledge. Kurz vor dem Rail ollien, dann landest du drauf: längs ein 50-50, um 90° gedreht ein Boardslide. Man setzt nie ganz gerade auf, also mit <kbd>←</kbd><kbd>→</kbd> gegensteuern (Strich in der Mitte halten), dann am Ende abrollen oder rausollien.',
+      parkLabel: 'Park:', parkPipe: 'Halfpipe', parkStreet: 'Streetpark',
       game: {}
     }
   };
@@ -118,6 +129,11 @@
     bt.addEventListener('pointerdown', (e) => { e.preventDefault(); bt.setPointerCapture(e.pointerId); HP.press(k, true); });
     ['pointerup', 'pointercancel'].forEach((type) => bt.addEventListener(type, () => HP.press(k, false)));
   });
+  document.querySelectorAll('[data-park]').forEach((bt) => bt.addEventListener('click', () => {
+    HP.setPark(bt.dataset.park);
+    document.querySelectorAll('[data-park]').forEach((o) => o.setAttribute('aria-pressed', String(o === bt)));
+    document.getElementById('halfpipe').focus();
+  }));
   document.querySelectorAll('[data-veh]').forEach((bt) => bt.addEventListener('click', () => {
     HP.setVehicle(bt.dataset.veh);
     document.querySelectorAll('[data-veh]').forEach((o) => o.setAttribute('aria-pressed', String(o === bt)));

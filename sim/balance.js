@@ -84,6 +84,63 @@ for (const [name, style, noise, tricks] of PLAYERS) {
         `| max height ${r.maxH.toFixed(1)} m | score ${String(r.score).padStart(5)} | bails ${r.bails} | speed at the end ${r.endKmh.toFixed(0)} km/h`);
 }
 
+// Streetpark: pumpen an den Quarters, auf der Fläche anschieben, optional vor dem Rail ollien und die Balance halten.
+// grind: Ollie aufs Rail versuchen. balance: gegensteuern (mit Reaktionszeit). noise: Streuung beim Absprung (m)
+function playStreet(grind, balance, noise) {
+    window.Halfpipe.setPark('street');
+    H.start();
+    const dt = 1 / 120, G = 9.81, POP = 3.6;
+    let t = 0, firstVert = null, releaseAt = null, crouch = false, aimOff = 0, react = 0, lean = null;
+    while (H.state.mode !== 'over' && t < 70) {
+        const s = H.state;
+        K.left = K.right = K.down = false;
+        if (s.mode === 'ground') {
+            const sn = Math.sin(H.TH[H.segAt(s.s)]), vert = s.v * sn, dir = Math.sign(s.v);
+            if (vert < -0.3 && Math.abs(sn) > 0.3) { crouch = true; releaseAt = null; }
+            else if (crouch) {
+                if (releaseAt === null) releaseAt = t + 0.05;
+                if (t >= releaseAt) { crouch = false; releaseAt = null; }
+            }
+            K.down = crouch;
+            if (Math.abs(sn) < 0.12 && Math.abs(s.v) < 6) { if (dir > 0) K.right = true; else if (dir < 0) K.left = true; }
+            if (grind && Math.abs(sn) < 0.01 && Math.abs(s.v) > 2) {
+                const x = H.posAt(s.s).x;
+                for (const r of H.rails) { // Absprung so, dass man 0.6 m hinter dem Railanfang aufsetzt
+                    const tf = (POP + Math.sqrt(POP * POP - 2 * G * r.h)) / G, xl = x + s.v * tf + aimOff;
+                    const entry = dir > 0 ? r.x0 + 0.6 : r.x1 - 0.6;
+                    if ((dir > 0 ? x < r.x0 : x > r.x1) && Math.abs(xl - entry) < 0.08) { window.Halfpipe.press('jump', true); aimOff = gauss() * noise; break; }
+                }
+            }
+        } else {
+            crouch = false;
+            if (s.mode === 'grind' && balance) {
+                if (t >= react) { // Reaktionszeit: eine Entscheidung gilt 0.12 s
+                    lean = s.bal > 0.08 ? 'left' : s.bal < -0.08 ? 'right' : null;
+                    react = t + 0.12;
+                }
+                if (lean) K[lean] = true;
+            }
+            if (s.mode === 'vert' && firstVert === null) firstVert = t;
+        }
+        H.update(dt);
+        t += dt;
+    }
+    const s = H.state;
+    window.Halfpipe.setPark('pipe');
+    return { firstVert, score: s.score, bails: s.bails, grinds: s.grinds };
+}
+const STREET = [['street, airs only', false, false, 0], ['street, grinds', true, true, 0.3], ['street, no balance', true, false, 0.3]];
+for (const [name, grind, balance, noise] of STREET) {
+    const runs = [];
+    for (let i = 0; i < RUNS; i++) runs.push(playStreet(grind, balance, noise));
+    const r = res[name] = {
+        firstVert: median(runs.map((x) => x.firstVert)), score: median(runs.map((x) => x.score)),
+        bails: median(runs.map((x) => x.bails)), grinds: median(runs.map((x) => x.grinds)),
+    };
+    console.log(name.padEnd(19), `first air over coping ${r.firstVert === null ? '   –' : r.firstVert.toFixed(1).padStart(4) + ' s'}`,
+        `| grinds ${String(r.grinds).padStart(2)} | score ${String(r.score).padStart(5)} | bails ${r.bails}`);
+}
+
 const checks = [
     ['idle scores nothing and slows down', res.idle.score === 0 && res.idle.endKmh < 20],
     ['holding down all the time is worse than idle', res['holds down'].score === 0 && res['holds down'].endKmh < res.idle.endKmh],
@@ -92,6 +149,10 @@ const checks = [
     ['sloppy pumping still works', res['pumps, ±0.2 s'].firstVert !== null && res['pumps, ±0.2 s'].firstVert <= 15],
     ['good tricks score far more than plain airs', res['tricks, good'].score > 4 * res['pumps, exact'].score],
     ['sloppy tricks score less and crash more', res['tricks, sloppy'].score < res['tricks, good'].score && res['tricks, sloppy'].bails > res['tricks, good'].bails],
+    ['street: pumping reaches the coping within 10 s', res['street, airs only'].firstVert !== null && res['street, airs only'].firstVert <= 10],
+    ['street: ollie onto the rail works (4+ grinds)', res['street, grinds'].grinds >= 4],
+    ['street: grinding scores far more than airs only', res['street, grinds'].score > 2 * res['street, airs only'].score],
+    ['street: without balancing you fall off', res['street, no balance'].bails > res['street, grinds'].bails && res['street, no balance'].score < res['street, grinds'].score],
 ];
 let ok = true;
 for (const [label, pass] of checks) { console.log(pass ? '  ok  ' : '  FAIL', label); ok = ok && pass; }

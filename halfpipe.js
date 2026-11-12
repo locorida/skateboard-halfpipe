@@ -23,13 +23,25 @@
         again: 'Leertaste oder Tippen: nochmal', bail: 'Sturz!', bailSub: 'gerade landen', pump: 'Pump!',
         hint: '↓ halten beim Runterfahren, unten loslassen = Schwung', air: 'Air', grab: 'Grab', tuck: 'Tuck',
         flip: 'Kickflip', whip: 'Tailwhip', double: 'Doppel-',
+        titleStreet: 'Street-Session', fifty: '50-50', fiveO: '5-0', boardslide: 'Boardslide', grind: 'Grind', feeble: 'Feeble',
+        hintStreet: 'Leertaste vor dem Rail = Ollie drauf, dann mit ← → die Balance halten',
     }, JSON.parse((cv.dataset && cv.dataset.texts) || '{}'));
 
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
 
-    // ---------- Geometrie (Meter) ----------
-    const G = 9.81, R = 3.2, W = 6, XMAX = W + R, KA = 1.0, KB = 2.6, KH = 0.8, ZW = 3.2, DECK = 2.2;
+    // ---------- Parks (Meter) ----------
+    // R: Radius der Wände, W: halbe Breite der Fläche dazwischen, KA/KB/KH: Funbox (Plateau bis KA, Rampe bis KB, Höhe KH),
+    // ZW: halbe Tiefe, DECK: Plattform hinter der Kante, rails: Rails und Ledges hinter der Fahrlinie (z < 0) zum Grinden
+    const PARKS = {
+        pipe: { R: 3.2, W: 6, KA: 1.0, KB: 2.6, KH: 0.8, ZW: 3.2, DECK: 2.2, rails: [], best: 'halfpipe-best',
+            wall: [222, 196, 150], flat: [200, 202, 198], box: [176, 182, 190], side: '#a8875a', sideLine: '#7a5a33', deck: [222, 196, 150] },
+        street: { R: 2.6, W: 9, KA: 0.7, KB: 1.9, KH: 0.55, ZW: 3.6, DECK: 1.8, best: 'halfpipe-best-street',
+            rails: [{ x0: -7, x1: -2.8, h: 0.5, z: -1, type: 'rail' }, { x0: 2.8, x1: 7, h: 0.42, z: -1.1, type: 'ledge' }],
+            wall: [190, 192, 194], flat: [178, 180, 182], box: [160, 164, 170], side: '#8d9196', sideLine: '#62676c', deck: [168, 172, 176] },
+    };
+    const G = 9.81;
+    let park = PARKS.pipe, parkId = 'pipe', R, W, XMAX, KA, KB, KH, ZW, DECK, RAILS;
     // Fahrgefühl
     const VMAX = 11;              // m/s (ca. 40 km/h): Air über der Kante dann knapp 3 m
     const FRIC_A = 0.12, FRIC_B = 0.003; // Rollreibung + Luftwiderstand (m/s²)
@@ -49,20 +61,28 @@
         if (ax <= KB) return KH * (KB - ax) / (KB - KA);
         return 0;
     }
-    const P = [];
-    for (let a = 90; a > 0; a -= 3) { const r = a * Math.PI / 180; P.push({ x: -W - R * Math.sin(r), y: R - R * Math.cos(r) }); }
-    const KEYX = [-W, -KB, -KA, KA, KB, W];
-    for (let i = 0; i < KEYX.length - 1; i++) {
-        const x0 = KEYX[i], x1 = KEYX[i + 1], n = Math.max(1, Math.round((x1 - x0) / 0.5));
-        for (let j = 0; j < n; j++) { const x = x0 + (x1 - x0) * j / n; P.push({ x, y: groundY(x) }); }
+    // Profil als Polylinie; die Arrays bleiben dieselben Objekte (die Simulation hält TH fest)
+    const P = [], SS = [], TH = [], LEN = [], QUADS = [];
+    let NS = 0, S_END = 0;
+    function buildPark(id) {
+        parkId = PARKS[id] ? id : 'pipe'; park = PARKS[parkId];
+        ({ R, W, KA, KB, KH, ZW, DECK } = park); XMAX = W + R; RAILS = park.rails;
+        P.length = SS.length = TH.length = LEN.length = QUADS.length = 0;
+        for (let a = 90; a > 0; a -= 3) { const r = a * Math.PI / 180; P.push({ x: -W - R * Math.sin(r), y: R - R * Math.cos(r) }); }
+        const KEYX = [-W, -KB, -KA, KA, KB, W];
+        for (let i = 0; i < KEYX.length - 1; i++) {
+            const x0 = KEYX[i], x1 = KEYX[i + 1], n = Math.max(1, Math.round((x1 - x0) / 0.5));
+            for (let j = 0; j < n; j++) { const x = x0 + (x1 - x0) * j / n; P.push({ x, y: groundY(x) }); }
+        }
+        for (let a = 0; a <= 90; a += 3) { const r = a * Math.PI / 180; P.push({ x: W + R * Math.sin(r), y: R - R * Math.cos(r) }); }
+        NS = P.length - 1; SS.push(0);
+        for (let i = 0; i < NS; i++) {
+            const dx = P[i + 1].x - P[i].x, dy = P[i + 1].y - P[i].y, l = Math.hypot(dx, dy);
+            LEN.push(l); TH.push(Math.atan2(dy, dx)); SS.push(SS[i] + l);
+        }
+        S_END = SS[NS];
+        buildQuads();
     }
-    for (let a = 0; a <= 90; a += 3) { const r = a * Math.PI / 180; P.push({ x: W + R * Math.sin(r), y: R - R * Math.cos(r) }); }
-    const NS = P.length - 1, SS = [0], TH = [], LEN = [];
-    for (let i = 0; i < NS; i++) {
-        const dx = P[i + 1].x - P[i].x, dy = P[i + 1].y - P[i].y, l = Math.hypot(dx, dy);
-        LEN.push(l); TH.push(Math.atan2(dy, dx)); SS.push(SS[i] + l);
-    }
-    const S_END = SS[NS];
     function segAt(s) { let lo = 0, hi = NS - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (SS[m] <= s) lo = m; else hi = m - 1; } return lo; }
     function posAt(s) { const i = segAt(s), t = clamp((s - SS[i]) / LEN[i], 0, 1); return { x: P[i].x + (P[i + 1].x - P[i].x) * t, y: P[i].y + (P[i + 1].y - P[i].y) * t }; }
     function sFromX(x) {
@@ -75,53 +95,115 @@
     // ---------- Zustand ----------
     const keys = { left: false, right: false, down: false };
     let jumpQ = false, flipQ = false, vehicle = 'skate', hintDone = false;
-    const BEST_KEY = 'halfpipe-best';
     let best = 0;
-    try { best = parseInt(localStorage.getItem(BEST_KEY), 10) || 0; } catch (e) { /* ohne Speicher eben ohne Rekord */ }
+    function loadBest() { best = 0; try { best = parseInt(localStorage.getItem(park.best), 10) || 0; } catch (e) { /* ohne Speicher eben ohne Rekord */ } }
     let st = {};
     const pops = [];
     function reset() {
-        st = { mode: 'ready', s: 0.02, v: 0, x: 0, y: 0, vx: 0, vy: 0, side: -1, h: 0, yaw: 0, yaw0: 0,
+        st = { mode: 'ready', s: 0.02, v: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, side: -1, h: 0, yaw: 0, yaw0: 0,
             flipT: 0, flips: 0, grab: false, grabT: 0, pitch: 0, tA: 0, T: 1, maxH: 0, crouch: 0, bailT: 0,
             charge: 0, sinceDown: 9, prevDown: false, pumpFlash: 0, pumps: 0,
+            rail: null, gx0: 0, bal: 0, balDrift: 0, gName: '', gPts: 0, gParts: null, grinds: 0,
             score: 0, combo: 0, time: SESSION, newBest: false, airs: 0, bails: 0, maxAir: 0 };
         pops.length = 0;
     }
     reset();
-    function start() { reset(); st.mode = 'ground'; st.pitch = TH[0]; announce(TXT.title); }
+    const title = () => (parkId === 'street' ? TXT.titleStreet : TXT.title);
+    function start() { reset(); st.mode = 'ground'; st.pitch = TH[0]; announce(title()); }
     function pop(text, sub) { pops.push({ text, sub: sub || '', t: 0 }); if (pops.length > 3) pops.shift(); }
     function announce(s) { if (status) status.textContent = s; }
     function takeoff() { st.yaw0 = st.yaw; st.flipT = 0; st.flips = 0; st.grab = false; st.grabT = 0; st.tA = 0; st.maxH = 0; st.charge = 0; }
     function toVert(side, vy) { st.mode = 'vert'; st.side = side; st.h = 0; st.vy = vy; st.tA = 0; st.T = 2 * vy / G; }
     function finish() {
         st.mode = 'over';
-        if (st.score > best) { best = st.score; st.newBest = st.score > 0; try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) { /* egal */ } }
+        if (st.score > best) { best = st.score; st.newBest = st.score > 0; try { localStorage.setItem(park.best, String(best)); } catch (e) { /* egal */ } }
         announce(`${TXT.over}: ${st.score} ${TXT.points}. ${st.newBest ? TXT.newRecord : TXT.record + ': ' + best + '.'} ${TXT.again}`);
     }
-    function bail() { st.mode = 'bail'; st.bailT = 0; st.combo = 0; st.grab = false; st.bails++; pop(TXT.bail, TXT.bailSub); announce(TXT.bail); }
+    function bail() { st.mode = 'bail'; st.bailT = 0; st.combo = 0; st.grab = false; st.rail = null; st.bails++; pop(TXT.bail, TXT.bailSub); announce(TXT.bail); }
 
-    // Landung: Drehung muss in 180°-Schritten stehen (±40°), Flip fertig sein
-    function land() {
-        const spin = st.yaw - st.yaw0, halfs = Math.round(spin / Math.PI), err = Math.abs(spin - halfs * Math.PI);
-        if (err > 0.7 || (st.flipT > 0 && st.flipT < 0.8)) { bail(); return; }
+    // Drehung muss in Schritten von step stehen (Landung: 180°, Rail: 90° = quer), Flip fertig sein. null = Sturz
+    function checkSpin(step, tol) {
+        const spin = st.yaw - st.yaw0, n = Math.round(spin / step), err = Math.abs(spin - n * step);
+        if (err > tol || (st.flipT > 0 && st.flipT < 0.8)) return null;
         if (st.flipT >= 0.8) st.flips++;
-        st.flipT = 0; st.yaw = st.yaw0 + halfs * Math.PI; st.grab = false;
-        if (st.tA < 0.28) return;
-        const coping = st.mode === 'ground' && (st.s < 0.01 || st.s > S_END - 0.01);
-        st.airs++; st.maxAir = Math.max(st.maxAir, st.maxH);
+        st.flipT = 0; st.yaw = st.yaw0 + n * step; st.grab = false;
+        return n;
+    }
+    function airTricks(halfs) {
         const parts = []; let pts = 0;
         const flipName = vehicle === 'skate' ? TXT.flip : TXT.whip;
         if (st.flips) { parts.push((st.flips === 2 ? TXT.double : st.flips > 2 ? st.flips + '× ' : '') + flipName); pts += Math.round(300 * st.flips * (st.flips > 1 ? 1.3 : 1)); }
         const deg = Math.abs(halfs) * 180;
         if (deg) { parts.push(String(deg)); pts += ({ 180: 100, 360: 250, 540: 450, 720: 700 })[deg] || Math.round(deg * 1.1); }
         if (st.grabT > 0.15) { parts.push(vehicle === 'skate' ? TXT.grab : TXT.tuck); pts += Math.round(st.grabT * 220); }
-        if (!pts) { if (!coping && st.tA < 0.5) return; parts.push(TXT.air); pts = 40; } else st.combo = Math.min(5, st.combo + 1);
-        pts = Math.round(pts + st.maxH * 45);
+        return { parts, pts };
+    }
+    function award(parts, pts) {
+        st.combo = Math.min(5, st.combo + 1);
         const mult = Math.max(1, st.combo);
         st.score += pts * mult;
         const label = parts.join(' + ');
         pop(label, pts + (mult > 1 ? ' × ' + mult : ''));
         announce(`${label}: ${pts * mult}`);
+    }
+
+    // Landung: Drehung in 180°-Schritten (±40°)
+    function land() {
+        const halfs = checkSpin(Math.PI, 0.7);
+        if (halfs === null) { bail(); return; }
+        if (st.tA < 0.28) return;
+        const coping = st.mode === 'ground' && (st.s < 0.01 || st.s > S_END - 0.01);
+        st.airs++; st.maxAir = Math.max(st.maxAir, st.maxH);
+        const { parts, pts } = airTricks(halfs);
+        if (!pts) {
+            if (!coping && st.tA < 0.5) return;
+            const mult = Math.max(1, st.combo); // ein einfacher Air hält die Kombo, erhöht sie aber nicht
+            st.score += Math.round(40 + st.maxH * 45) * mult; pop(TXT.air, Math.round(40 + st.maxH * 45) + (mult > 1 ? ' × ' + mult : ''));
+            announce(`${TXT.air}: ${Math.round(40 + st.maxH * 45) * mult}`);
+            return;
+        }
+        award(parts, Math.round(pts + st.maxH * 45));
+    }
+
+    // ---------- Grinden (Rails und Ledges im Streetpark) ----------
+    const GRIND_FRIC = 1.1;   // m/s² Bremsen auf dem Rail
+    const BAL_START = 0.3;    // so schief steht man nach dem Aufsetzen (0.3 bis 0.45, 1 = Sturz)
+    const BAL_DRIFT = 0.55;   // so schnell kippt man von allein (pro s)
+    const BAL_GROW = 2.2;     // je schiefer, desto schneller kippt man weiter (1/s)
+    const BAL_FIX = 2.4;      // Gegensteuern mit ← → (pro s)
+    // Aufsetzen auf dem Rail: längs = 50-50 / Grind, quer (90°) = Boardslide / Feeble
+    function lockRail(r) {
+        const n = checkSpin(Math.PI / 2, 0.5);
+        if (n === null) { st.s = sFromX(st.x).s; bail(); return; }
+        const halfs = Math.trunc(n / 2), slide = n % 2 !== 0, t = airTricks(halfs);
+        st.mode = 'grind'; st.rail = r; st.y = r.h; st.gx0 = st.x; st.v = clamp(st.vx, -VMAX, VMAX); st.pitch = 0;
+        // man setzt nie ganz gerade auf: leicht schief, und es kippt weiter in diese Richtung
+        const sd = Math.random() < 0.5 ? -1 : 1;
+        st.bal = sd * (BAL_START + 0.15 * Math.random()); st.balDrift = sd * BAL_DRIFT;
+        st.gParts = t.parts; st.gPts = t.pts; st.gSlide = slide;
+        st.gName = vehicle === 'skate' ? (slide ? TXT.boardslide : r.type === 'ledge' ? TXT.fiveO : TXT.fifty) : (slide ? TXT.feeble : TXT.grind);
+        announce(st.gName);
+    }
+    function endGrind(vy) {
+        const r = st.rail, dist = Math.abs(st.x - st.gx0);
+        st.grinds++;
+        award([...st.gParts, st.gName], Math.round(st.gPts + (80 + dist * 60) * (st.gSlide ? 1.3 : 1)));
+        // aus dem Boardslide zurück auf längs drehen
+        st.yaw = Math.round(st.yaw / Math.PI) * Math.PI;
+        takeoff(); st.rail = null; st.mode = 'air';
+        st.x = clamp(st.x, r.x0, r.x1); st.y = r.h + 0.01; st.vx = st.v; st.vy = vy; st.pitch = 0;
+    }
+    function grindStep(dt) {
+        const r = st.rail;
+        st.v -= Math.sign(st.v) * Math.min(Math.abs(st.v), GRIND_FRIC * dt);
+        st.x += st.v * dt;
+        st.bal += (st.balDrift + BAL_GROW * st.bal) * dt;
+        if (keys.left) st.bal -= BAL_FIX * dt;
+        if (keys.right) st.bal += BAL_FIX * dt;
+        st.pitch = st.bal * 0.4;
+        if (Math.abs(st.bal) >= 1) { st.s = sFromX(st.x).s; bail(); return; }
+        if (jumpQ) { jumpQ = false; return endGrind(3.2); } // Ollie raus: Flip und Drehung gehen wieder
+        if (st.x <= r.x0 || st.x >= r.x1 || Math.abs(st.v) < 0.3) endGrind(0);
     }
 
     // ---------- Physik ----------
@@ -131,17 +213,19 @@
         st.pumpFlash = Math.max(0, st.pumpFlash - dt);
         if (st.mode === 'ready' || st.mode === 'over') return;
         st.time = Math.max(0, st.time - dt);
+        // Rails stehen hinter der Fahrlinie: beim Grinden rückt der Fahrer nach hinten, danach wieder nach vorn
+        st.z += ((st.mode === 'grind' ? st.rail.z : st.mode === 'bail' ? st.z : 0) - st.z) * Math.min(1, dt * 14);
         if (st.mode === 'bail') {
             st.bailT += dt;
             if (st.bailT > 1.4) {
                 if (st.time <= 0) return finish();
-                Object.assign(st, { mode: 'ground', s: 0.02, v: 0, yaw: 0, flipT: 0, pitch: TH[0], bailT: 0, charge: 0 });
+                Object.assign(st, { mode: 'ground', s: 0.02, v: 0, z: 0, yaw: 0, flipT: 0, pitch: TH[0], bailT: 0, charge: 0 });
             }
             return;
         }
-        const inAir = st.mode !== 'ground';
+        const inAir = st.mode === 'air' || st.mode === 'vert';
         st.crouch += (((keys.down || (inAir && st.grab)) ? 1 : 0) - st.crouch) * Math.min(1, dt * 10);
-        if (st.mode === 'ground') groundStep(dt); else airStep(dt);
+        if (st.mode === 'ground') groundStep(dt); else if (st.mode === 'grind') grindStep(dt); else airStep(dt);
         if (st.mode === 'ground' && st.time <= 0) finish();
     }
 
@@ -212,7 +296,11 @@
             }
             return;
         }
+        const y0 = st.y;
         st.vy -= G * dt; st.x += st.vx * dt; st.y += st.vy * dt;
+        if (st.vy < 0) for (const r of RAILS) { // von oben aufs Rail: Grind
+            if (y0 >= r.h && st.y <= r.h && st.x > r.x0 + 0.15 && st.x < r.x1 - 0.15) { lockRail(r); return; }
+        }
         const gy = groundY(st.x);
         st.maxH = Math.max(st.maxH, st.y - gy);
         st.pitch -= st.pitch * Math.min(1, dt * 2.5);
@@ -252,33 +340,92 @@
     const rgb = (c, s) => `rgb(${Math.min(255, c[0] * s) | 0},${Math.min(255, c[1] * s) | 0},${Math.min(255, c[2] * s) | 0})`;
     const LIGHT = norm([-0.35, 0.85, 0.4]);
 
-    const QUADS = [];
-    const C_WOOD = [222, 196, 150], C_FLAT = [200, 202, 198], C_BOX = [176, 182, 190];
-    for (let i = 0; i < NS; i++) {
-        const a = P[i], b = P[i + 1], n = [-Math.sin(TH[i]), Math.cos(TH[i]), 0];
-        const midX = (a.x + b.x) / 2, ax = Math.abs(midX);
-        const col = ax > W ? C_WOOD : ax < KB ? C_BOX : C_FLAT;
-        const sh = 0.66 + 0.34 * Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1]);
-        for (let j = 0; j < 4; j++) {
-            const z0 = -ZW + j * ZW / 2, z1 = z0 + ZW / 2;
-            QUADS.push({ pts: [[a.x, a.y, z0], [b.x, b.y, z0], [b.x, b.y, z1], [a.x, a.y, z1]], c: [midX, (a.y + b.y) / 2, (z0 + z1) / 2], n,
-                fill: rgb(col, sh * (i % 2 ? 1 : 0.97)) });
+    function buildQuads() {
+        for (let i = 0; i < NS; i++) {
+            const a = P[i], b = P[i + 1], n = [-Math.sin(TH[i]), Math.cos(TH[i]), 0];
+            const midX = (a.x + b.x) / 2, ax = Math.abs(midX);
+            const col = ax > W ? park.wall : ax < KB ? park.box : park.flat;
+            const sh = 0.66 + 0.34 * Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1]);
+            for (let j = 0; j < 4; j++) {
+                const z0 = -ZW + j * ZW / 2, z1 = z0 + ZW / 2;
+                QUADS.push({ pts: [[a.x, a.y, z0], [b.x, b.y, z0], [b.x, b.y, z1], [a.x, a.y, z1]], c: [midX, (a.y + b.y) / 2, (z0 + z1) / 2], n,
+                    fill: rgb(col, sh * (i % 2 ? 1 : 0.97)) });
+            }
         }
     }
-    // Hintergrund: Harzkamm mit Brocken und Tannen
+    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    // Hintergrund Halfpipe: Harzkamm mit Brocken und Tannen
     const RIDGE = [];
     for (let x = -140; x <= 140; x += 7) RIDGE.push([x, 9 + 5 * Math.sin(x * 0.045) + 3 * Math.sin(x * 0.13 + 1) + (Math.abs(x - 30) < 18 ? 9 * Math.cos((x - 30) / 18 * Math.PI / 2) : 0), -90]);
     const TREES = [];
-    {
-        let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-        for (let i = 0; i < 46; i++) TREES.push({ x: -40 + rnd() * 80, z: -12 - rnd() * 16, h: 4 + rnd() * 4 });
-        TREES.sort((a, b) => a.z - b.z);
+    for (let i = 0; i < 46; i++) TREES.push({ x: -40 + rnd() * 80, z: -12 - rnd() * 16, h: 4 + rnd() * 4 });
+    TREES.sort((a, b) => a.z - b.z);
+    // Hintergrund Streetpark: Häuser der Stadt, zwei Reihen
+    const HOUSES = [];
+    for (let row = 0; row < 2; row++) {
+        const cols = row ? ['#b3bcc6', '#a9b4bf', '#bcc3cb'] : ['#b98d78', '#a3a9b0', '#c9b48e', '#9aa6a0', '#b7a29a'];
+        for (let x = -110; x < 110;) {
+            const w = 7 + rnd() * 9, h = (row ? 9 : 4) + rnd() * (row ? 10 : 5);
+            HOUSES.push({ x0: x, x1: x + w - 1, h, z: row ? -80 : -48, row, win: rnd() < 0.75, col: cols[(rnd() * cols.length) | 0] });
+            x += w + (row ? 0 : rnd() * 4);
+        }
+    }
+    // Werbebanner: ausgedachte Marken im Stil typischer Skate-Labels
+    const BRANDS = [
+        { name: 'BROCKEN BOARDS', bg: '#111111', fg: '#ffffff', bar: '#d33b2f' },
+        { name: 'ACID GRIP', bg: '#e8ff3a', fg: '#111111' },
+        { name: 'COPING CLUB', bg: '#d33b2f', fg: '#ffffff' },
+        { name: 'NORTHSIDE TRUCKS', bg: '#1f2d4d', fg: '#ff9a2e' },
+        { name: 'BAILOUT WHEELS', bg: '#ffffff', fg: '#d33b2f', bar: '#111111' },
+        { name: 'GRIND HOUSE', bg: '#c2187a', fg: '#ffffff' },
+        { name: 'SHRED SOCIETY', bg: '#1c8c7a', fg: '#0d1512' },
+        { name: 'KICKTAIL CO.', bg: '#f2c230', fg: '#1d1d1d', bar: '#1d1d1d' },
+    ];
+    // Banner als Rechteck in der Ebene z = const; die Perspektive dort ist praktisch affin
+    function banner(x0, x1, y0, y1, z, b) {
+        const a = proj(x0, y1, z), c = proj(x1, y1, z), d = proj(x0, y0, z);
+        ctx.save();
+        ctx.transform((c[0] - a[0]) / 100, (c[1] - a[1]) / 100, (d[0] - a[0]) / 20, (d[1] - a[1]) / 20, a[0], a[1]);
+        ctx.fillStyle = b.bg; ctx.fillRect(0, 0, 100, 20);
+        if (b.bar) { ctx.fillStyle = b.bar; ctx.fillRect(0, 16.5, 100, 3.5); }
+        ctx.fillStyle = b.fg; ctx.font = '900 13px Impact, "Arial Black", system-ui, sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(b.name, 50, b.bar ? 13.5 : 14.5, 92);
+        ctx.restore();
+    }
+    function bannerRow(x0, x1, y0, y1, z, first, poles) {
+        const n = Math.max(1, Math.round((x1 - x0) / 4.2)), w = (x1 - x0) / n;
+        for (let i = 0; i < n; i++) {
+            const a = x0 + i * w + 0.12, b = x0 + (i + 1) * w - 0.12;
+            if (poles) {
+                ctx.strokeStyle = '#5b6166'; ctx.lineWidth = 2; ctx.beginPath();
+                for (const px of [a + 0.15, b - 0.15]) { const p = proj(px, 0, z), q = proj(px, y1, z); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); }
+                ctx.stroke();
+            }
+            banner(a, b, y0, y1, z, BRANDS[(first + i) % BRANDS.length]);
+        }
     }
 
     function drawBackground() {
+        const street = parkId === 'street';
         const g = ctx.createLinearGradient(0, 0, 0, CH);
-        g.addColorStop(0, '#8ec5ea'); g.addColorStop(0.6, '#d7ecf7'); g.addColorStop(1, '#eef6f2');
+        if (street) { g.addColorStop(0, '#7fb2dc'); g.addColorStop(0.6, '#e2e6ea'); g.addColorStop(1, '#eceae6'); }
+        else { g.addColorStop(0, '#8ec5ea'); g.addColorStop(0.6, '#d7ecf7'); g.addColorStop(1, '#eef6f2'); }
         ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH);
+        if (street) {
+            for (const hs of HOUSES) {
+                ctx.fillStyle = hs.col;
+                path([[hs.x0, 0, hs.z], [hs.x1, 0, hs.z], [hs.x1, hs.h, hs.z], [hs.x0, hs.h, hs.z]]); ctx.fill();
+                if (!hs.win || hs.row) continue;
+                ctx.fillStyle = 'rgba(70,85,100,.35)';
+                for (let y = 1.8; y < hs.h - 1.2; y += 2.8) for (let x = hs.x0 + 1; x < hs.x1 - 1.2; x += 2.2) { path([[x, y, hs.z], [x + 1, y, hs.z], [x + 1, y + 1.3, hs.z], [x, y + 1.3, hs.z]]); ctx.fill(); }
+            }
+            ctx.fillStyle = '#8fa58a'; path([[-110, 0, -46], [110, 0, -46], [110, 0, 9], [-110, 0, 9]]); ctx.fill();
+            const zb = -ZW - 1.4; // Rückwand aus Beton, darauf die Banner
+            ctx.fillStyle = '#b4b2ad'; path([[-XMAX - DECK - 2, 0, zb], [XMAX + DECK + 2, 0, zb], [XMAX + DECK + 2, 2.6, zb], [-XMAX - DECK - 2, 2.6, zb]]); ctx.fill();
+            ctx.fillStyle = '#c4c6c8'; path([[-XMAX - DECK - 2, 0.002, zb], [XMAX + DECK + 2, 0.002, zb], [XMAX + DECK + 2, 0.002, ZW + 1.2], [-XMAX - DECK - 2, 0.002, ZW + 1.2]]); ctx.fill();
+            bannerRow(-XMAX - DECK - 1.6, XMAX + DECK + 1.6, 1.0, 2.25, zb + 0.01, 0, false);
+            return;
+        }
         ctx.fillStyle = '#9fb7a6';
         path([[-140, 0, -90], ...RIDGE, [140, 0, -90]]); ctx.fill();
         ctx.fillStyle = '#86b06a'; path([[-60, 0, -40], [60, 0, -40], [60, 0, 9], [-60, 0, 9]]); ctx.fill();
@@ -288,12 +435,36 @@
             ctx.beginPath(); ctx.moveTo(tp[0], tp[1]); ctx.lineTo(b[0] - w, b[1] - w * 0.15); ctx.lineTo(b[0] + w, b[1] - w * 0.15); ctx.fill();
         }
         ctx.fillStyle = '#b9bdbb'; path([[-14, 0.002, -5], [14, 0.002, -5], [14, 0.002, 4.4], [-14, 0.002, 4.4]]); ctx.fill();
+        bannerRow(-XMAX, XMAX, 0.5, 1.55, -4.4, 0, true); // Bannerzaun hinter der Halfpipe
+    }
+
+    // Rails (Rohr auf Pfosten) und Ledges (Betonblock mit Stahlkante), hinter der Fahrlinie
+    function drawRails() {
+        for (const r of RAILS) {
+            if (r.type === 'ledge') {
+                const zf = r.z + 0.3, zb = r.z - 0.3;
+                // Stirnseiten zuerst: die abgewandte verdecken Ober- und Vorderseite (konvexer Block)
+                ctx.fillStyle = '#7b7e81';
+                for (const x of [r.x0, r.x1]) { path([[x, 0, zb], [x, 0, zf], [x, r.h, zf], [x, r.h, zb]]); ctx.fill(); }
+                ctx.fillStyle = '#a3a6a8'; path([[r.x0, r.h, zb], [r.x1, r.h, zb], [r.x1, r.h, zf], [r.x0, r.h, zf]]); ctx.fill();
+                ctx.fillStyle = '#8a8d90'; path([[r.x0, 0, zf], [r.x1, 0, zf], [r.x1, r.h, zf], [r.x0, r.h, zf]]); ctx.fill();
+                const a = proj(r.x0, r.h, zf), b = proj(r.x1, r.h, zf);
+                ctx.strokeStyle = '#4c5257'; ctx.lineWidth = 0.04 * FOCAL / b[2] + 1; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+                continue;
+            }
+            ctx.strokeStyle = '#3d4247'; ctx.lineWidth = 0.05 * FOCAL / proj(r.x0, 0, r.z)[2] + 1; ctx.beginPath();
+            for (let x = r.x0 + 0.3; x <= r.x1 - 0.29; x += (r.x1 - r.x0 - 0.6) / 2) { const p = proj(x, 0, r.z), q = proj(x, r.h, r.z); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); }
+            ctx.stroke();
+            const a = proj(r.x0, r.h, r.z), b = proj(r.x1, r.h, r.z);
+            ctx.strokeStyle = '#d6dadd'; ctx.lineWidth = 0.06 * FOCAL / b[2] + 1; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+            ctx.strokeStyle = '#6d7377'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a[0], a[1] + 2); ctx.lineTo(b[0], b[1] + 2); ctx.stroke();
+        }
     }
 
     function drawPipe() {
         for (const sd of [-1, 1]) { // Plattformen mit Geländer
             const x0 = sd * XMAX, x1 = sd * (XMAX + DECK);
-            ctx.fillStyle = rgb(C_WOOD, 0.95); path([[x0, R, -ZW], [x1, R, -ZW], [x1, R, ZW], [x0, R, ZW]]); ctx.fill();
+            ctx.fillStyle = rgb(park.deck, 0.95); path([[x0, R, -ZW], [x1, R, -ZW], [x1, R, ZW], [x0, R, ZW]]); ctx.fill();
             ctx.strokeStyle = '#6d7377'; ctx.lineWidth = 2;
             const r0 = proj(x0 + sd * 0.3, R + 1, -ZW), r1 = proj(x1, R + 1, -ZW);
             ctx.beginPath(); ctx.moveTo(r0[0], r0[1]); ctx.lineTo(r1[0], r1[1]);
@@ -317,7 +488,7 @@
 
     function drawSide() {
         const pts = [[-XMAX - DECK, 0, ZW], [-XMAX - DECK, R, ZW], ...P.map((p) => [p.x, p.y, ZW]), [XMAX + DECK, R, ZW], [XMAX + DECK, 0, ZW]];
-        path(pts); ctx.fillStyle = '#a8875a'; ctx.fill();
+        path(pts); ctx.fillStyle = park.side; ctx.fill();
         ctx.strokeStyle = 'rgba(70,45,20,.35)'; ctx.lineWidth = 1;
         ctx.beginPath();
         for (let x = -XMAX - DECK + 1.1; x < XMAX + DECK; x += 1.1) {
@@ -325,17 +496,17 @@
             const a = proj(x, 0, ZW), b = proj(x, top, ZW); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
         }
         ctx.stroke();
-        ctx.strokeStyle = '#7a5a33'; ctx.lineWidth = 2.5; ctx.beginPath();
+        ctx.strokeStyle = park.sideLine; ctx.lineWidth = 2.5; ctx.beginPath();
         pts.slice(1, -1).forEach((p, i) => { const q = proj(p[0], p[1], p[2]); if (i) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); });
         ctx.stroke();
     }
 
     // ---------- Fahrer ----------
     function riderBase() {
-        if (st.mode === 'ready') return { x: -XMAX - 0.55, y: R, pitch: 0 };
-        if (st.mode === 'air') return { x: st.x, y: st.y, pitch: st.pitch };
-        if (st.mode === 'vert') return { x: st.side * XMAX, y: R + st.h, pitch: st.pitch };
-        const p = posAt(st.s); return { x: p.x, y: p.y, pitch: st.pitch };
+        if (st.mode === 'ready') return { x: -XMAX - 0.55, y: R, z: 0, pitch: 0 };
+        if (st.mode === 'air' || st.mode === 'grind') return { x: st.x, y: st.y, z: st.z, pitch: st.pitch };
+        if (st.mode === 'vert') return { x: st.side * XMAX, y: R + st.h, z: st.z, pitch: st.pitch };
+        const p = posAt(st.s); return { x: p.x, y: p.y, z: st.z, pitch: st.pitch };
     }
 
     function drawRider(b) {
@@ -348,7 +519,7 @@
         const cy = Math.cos(st.yaw), sy = Math.sin(st.yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
         const X = (p) => {
             const x = p[0] * cy + p[2] * sy, z = -p[0] * sy + p[2] * cy, y = p[1];
-            return proj(b.x + x * cp - y * sp, b.y + x * sp + y * cp, z);
+            return proj(b.x + x * cp - y * sp, b.y + x * sp + y * cp, b.z + z);
         };
         const boardT = (p) => {
             let [x, y, z] = p;
@@ -404,7 +575,7 @@
     function drawShadow(b) {
         if (st.mode === 'vert' || st.mode === 'ready') return;
         const gx = clamp(b.x, -XMAX + 0.3, XMAX - 0.3), gy = groundY(gx);
-        const p = proj(gx, gy + 0.01, 0), r = 0.5 * FOCAL / p[2];
+        const p = proj(gx, gy + 0.01, b.z), r = 0.5 * FOCAL / p[2];
         const hgt = Math.max(0, b.y - gy);
         ctx.fillStyle = `rgba(0,0,0,${0.22 / (1 + hgt * 0.6)})`;
         ctx.beginPath(); ctx.ellipse(p[0], p[1], r, r * 0.28, 0, 0, 7); ctx.fill();
@@ -420,7 +591,14 @@
         txt(`${TXT.points} ${st.score}`, 18, 34, 22);
         txt(`${TXT.time} ${Math.ceil(st.time)} s`, 18, 62, 18);
         if (st.combo > 1) txt(`${TXT.combo} × ${st.combo}`, 18, 88, 18, 'left', '#c0392b');
-        const v = st.mode === 'ground' ? Math.abs(st.v) : st.mode === 'air' ? Math.hypot(st.vx, st.vy) : Math.abs(st.vy);
+        const v = st.mode === 'ground' || st.mode === 'grind' ? Math.abs(st.v) : st.mode === 'air' ? Math.hypot(st.vx, st.vy) : Math.abs(st.vy);
+        if (st.mode === 'grind') { // Balance: Strich in der Mitte halten, mit ← → gegensteuern
+            const bx = CW / 2, by = CH - 54;
+            txt(st.gName, bx, by - 12, 18, 'center', '#1d2a22');
+            ctx.fillStyle = 'rgba(29,42,34,.2)'; ctx.fillRect(bx - 110, by, 220, 10);
+            ctx.fillStyle = 'rgba(47,107,69,.35)'; ctx.fillRect(bx - 35, by, 70, 10);
+            ctx.fillStyle = Math.abs(st.bal) > 0.65 ? '#c0392b' : '#1d2a22'; ctx.fillRect(bx + clamp(st.bal, -1, 1) * 110 - 3, by - 4, 6, 18);
+        }
         txt(Math.round(v * 3.6) + ' km/h', CW - 18, 34, 20, 'right');
         // Pump-Ladung: kleiner Balken unter dem Tempo
         if (st.mode === 'ground' || st.charge > 0) {
@@ -437,10 +615,11 @@
             ctx.globalAlpha = 1;
         });
         if (!hintDone && st.mode === 'ground' && st.time < SESSION - 1.5) txt(TXT.hint, CW / 2, CH - 24, 18, 'center', '#1d2a22');
+        else if (parkId === 'street' && !st.grinds && st.mode === 'ground' && st.time < SESSION - 6) txt(TXT.hintStreet, CW / 2, CH - 24, 18, 'center', '#1d2a22');
         if (st.mode === 'ready' || st.mode === 'over') {
             ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillRect(CW / 2 - 260, CH / 2 - 70, 520, 130);
             if (st.mode === 'ready') {
-                txt(TXT.title, CW / 2, CH / 2 - 26, 30, 'center');
+                txt(title(), CW / 2, CH / 2 - 26, 30, 'center');
                 txt(TXT.start, CW / 2, CH / 2 + 10, 20, 'center', '#2f6b45');
                 txt(TXT.sub, CW / 2, CH / 2 + 40, 16, 'center', '#4a5a50');
             } else {
@@ -456,6 +635,7 @@
         setCam(camX, camY);
         drawBackground();
         drawPipe();
+        drawRails();
         drawShadow(b);
         drawRider(b);
         drawSide();
@@ -495,6 +675,8 @@
         draw();
         requestAnimationFrame(frame);
     }
+    buildPark('pipe');
+    loadBest();
     fit();
     window.addEventListener('resize', fit);
     requestAnimationFrame(frame);
@@ -502,6 +684,10 @@
     window.Halfpipe = {
         press,
         setVehicle(v) { vehicle = v === 'scooter' ? 'scooter' : 'skate'; },
-        T: { keys, get state() { return st; }, start, update, camStep, draw, groundY, TH, segAt, consts: { R, VMAX, G } },
+        // Parkwechsel beendet die laufende Session
+        setPark(id) { buildPark(id); loadBest(); reset(); camX = camY = 0; announce(title()); },
+        get park() { return parkId; },
+        T: { keys, get state() { return st; }, start, update, camStep, draw, groundY, TH, segAt, posAt,
+            get rails() { return RAILS; }, get consts() { return { R, VMAX, G, XMAX }; } },
     };
 })();
