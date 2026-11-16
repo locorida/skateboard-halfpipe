@@ -76,7 +76,7 @@
     const CHARGE_RATE = 2.2;      // Ladung pro Sekunde in der Hocke beim Herunterfahren (× Steilheit)
     const CROUCH_DRAG = 0.9;      // Hocke bergauf: so viel langsamer (m/s² × Steilheit)
     const SPIN_RATE = 7;          // rad/s (ca. 400°/s)
-    const SETTLE_RATE = 2.6;      // rad/s (ca. 150°/s): so schnell dreht sich der Fahrer nach dem Loslassen von selbst gerade
+    const SETTLE_RATE = 3.5;      // rad/s (ca. 200°/s): so schnell dreht sich der Fahrer nach dem Loslassen von selbst gerade
     const FLIP_TIME = 0.42;       // s für einen Kickflip/Tailwhip
     const SESSION = 60;
 
@@ -354,9 +354,11 @@
         st.tA += dt;
         if (keys.left) st.yaw += SPIN_RATE * dt;
         if (keys.right) st.yaw -= SPIN_RATE * dt;
-        if (!keys.left && !keys.right) { // losgelassen: zurechtrutschen zur nächsten geraden Stellung (bis 60° daneben)
+        if (!keys.left && !keys.right) { // losgelassen: zurechtrutschen zur nächsten geraden Stellung, egal wie schief
             const spin = st.yaw - st.yaw0, err = spin - Math.round(spin / Math.PI) * Math.PI;
-            if (Math.abs(err) < 1.05) st.yaw -= Math.sign(err) * Math.min(Math.abs(err), SETTLE_RATE * dt);
+            // über einem Rail bleibt eine gewollte Querstellung (Boardslide) stehen
+            const overRail = st.mode === 'air' && RAILS.some((r) => st.x > r.x0 - 1 && st.x < r.x1 + 1);
+            if (!(overRail && Math.abs(err) > 1.05)) st.yaw -= Math.sign(err) * Math.min(Math.abs(err), SETTLE_RATE * dt);
         }
         if (flipQ && st.flipT === 0) st.flipT = 1e-4;
         flipQ = false;
