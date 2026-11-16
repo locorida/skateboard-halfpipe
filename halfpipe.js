@@ -76,6 +76,7 @@
     const CHARGE_RATE = 2.2;      // Ladung pro Sekunde in der Hocke beim Herunterfahren (× Steilheit)
     const CROUCH_DRAG = 0.9;      // Hocke bergauf: so viel langsamer (m/s² × Steilheit)
     const SPIN_RATE = 7;          // rad/s (ca. 400°/s)
+    const SETTLE_RATE = 2.6;      // rad/s (ca. 150°/s): so schnell dreht sich der Fahrer nach dem Loslassen von selbst gerade
     const FLIP_TIME = 0.42;       // s für einen Kickflip/Tailwhip
     const SESSION = 60;
 
@@ -155,11 +156,12 @@
     }
     function bail() { ooh = 1.3; cheer = 0; st.mode = 'bail'; st.bailT = 0; st.combo = 0; st.grab = false; st.rail = null; st.cleared = []; st.bails++; pop(TXT.bail, TXT.bailSub); announce(TXT.bail); }
 
-    // Drehung muss in Schritten von step stehen (Landung: 180°, Rail: 90° = quer), Flip fertig sein. null = Sturz
+    // Drehung muss in Schritten von step stehen (Landung: 180°, Rail: 90° = quer), Flip fast fertig sein. null = Sturz.
+    // Kinderfreundlich: ein Flip ab 70 % zählt, ein gerade erst angefangener (unter 25 %) wird einfach abgebrochen
     function checkSpin(step, tol) {
         const spin = st.yaw - st.yaw0, n = Math.round(spin / step), err = Math.abs(spin - n * step);
-        if (err > tol || (st.flipT > 0 && st.flipT < 0.8)) return null;
-        if (st.flipT >= 0.8) st.flips++;
+        if (err > tol || (st.flipT > 0.25 && st.flipT < 0.7)) return null;
+        if (st.flipT >= 0.7) st.flips++;
         st.flipT = 0; st.yaw = st.yaw0 + n * step; st.grab = false;
         return n;
     }
@@ -185,7 +187,7 @@
 
     // Landung: Drehung in 180°-Schritten (±40°)
     function land() {
-        const halfs = checkSpin(Math.PI, 0.7);
+        const halfs = checkSpin(Math.PI, 0.87); // ±50°
         if (halfs === null) { bail(); return; }
         if (st.tA < 0.28) return;
         const coping = st.mode === 'ground' && (st.s < 0.01 || st.s > S_END - 0.01);
@@ -352,6 +354,10 @@
         st.tA += dt;
         if (keys.left) st.yaw += SPIN_RATE * dt;
         if (keys.right) st.yaw -= SPIN_RATE * dt;
+        if (!keys.left && !keys.right) { // losgelassen: zurechtrutschen zur nächsten geraden Stellung (bis 60° daneben)
+            const spin = st.yaw - st.yaw0, err = spin - Math.round(spin / Math.PI) * Math.PI;
+            if (Math.abs(err) < 1.05) st.yaw -= Math.sign(err) * Math.min(Math.abs(err), SETTLE_RATE * dt);
+        }
         if (flipQ && st.flipT === 0) st.flipT = 1e-4;
         flipQ = false;
         if (st.flipT > 0) { st.flipT += dt / FLIP_TIME; if (st.flipT >= 1) { st.flipT = 0; st.flips++; } }

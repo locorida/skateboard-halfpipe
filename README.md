@@ -16,7 +16,7 @@ A small 3D skate game on canvas with three parks: a wooden halfpipe, a concrete 
 - **BMX everywhere.** The BMX works in every park: barspin on ↑, tabletop on ↓, double peg grinds on the rail, and on flat ground you pedal (pedalling alone never gets you over the coping, you still have to pump).
 - **BMX park.** A small halfpipe in a scrapyard: tyre stacks to bunny hop and a rusty scrap car between a kicker and a landing ramp. Hop at the lip to fly over it; touch the car or the tyres and you crash. Wrecks are piled up behind a corrugated fence. Only the BMX is allowed here.
 - **Free ride.** No clock, ride as long as you like. Points still count; the best score is only kept for 60-second sessions.
-- **Tricks and combos.** Spins in steps of 180°, kickflips (skateboard) or tailwhips (scooter), grabs. Land straight with the flip finished or you bail. Tricks in a row build up a combo up to ×5.
+- **Tricks and combos.** Spins in steps of 180°, kickflips (skateboard) or tailwhips (scooter), grabs. Let go of the spin keys and the rider straightens up by themselves (up to about 60° off, like shuffling your feet after a sketchy landing); landings forgive 50°, and a flip only has to be 70 % done. Tricks in a row build up a combo up to ×5.
 - **Accessible where it can be.** Keyboard controls, focusable canvas, on-screen buttons on touch devices, and an `aria-live` region that announces tricks, bails and the final score. Light and dark page theme.
 - **Best score** saved in `localStorage` (optional; the game works without it).
 
@@ -42,16 +42,16 @@ idle            first air over coping    – | max height 0.0 m | score     0 | 
 holds down      first air over coping    – | max height 0.0 m | score     0 | bails 0
 pumps, exact    first air over coping  3.3 s | max height 2.5 m | score  2149 | bails 0
 pumps, ±0.2 s   first air over coping  3.4 s | max height 2.5 m | score  1869 | bails 0
-tricks, good    first air over coping  3.3 s | max height 2.5 m | score 19018 | bails 1
-tricks, sloppy  first air over coping  3.3 s | max height 2.4 m | score  5413 | bails 3
+tricks, good    first air over coping  3.4 s | max height 2.5 m | score 22531 | bails 0
+tricks, sloppy  first air over coping  3.3 s | max height 2.5 m | score 12590 | bails 2
 street, airs only   first air over coping  4.1 s | grinds  0 | score  1350 | bails 0
-street, grinds      first air over coping  4.2 s | grinds 10 | score 18781 | bails 0
-street, no balance  first air over coping  8.6 s | grinds  3 | score  1901 | bails 3
-bmx, pumps          first air over coping  3.3 s | score 20916 | bails 0
+street, grinds      first air over coping  4.2 s | grinds 10 | score 19171 | bails 0
+street, no balance  first air over coping  8.7 s | grinds  3 | score  1976 | bails 3
+bmx, pumps          first air over coping  3.3 s | score 22583 | bails 0
 bmx, pedals only    first air over coping    – | score     0 | bails 0
 bmx park, rides     car jumps  0 | all jumps  0 | score     0 | bails 21
-bmx park, hops      car jumps 11 | all jumps 33 | score 41840 | bails 0
-bmx park, sloppy    car jumps 10 | all jumps 30 | score 26491 | bails 3
+bmx park, hops      car jumps 11 | all jumps 33 | score 41838 | bails 0
+bmx park, sloppy    car jumps 10 | all jumps 29 | score 24868 | bails 3
 ```
 
 The simulation found the main tuning problem: the funbox used to launch riders automatically and ate about a third of their speed on every pass, so pumping never paid off. Now you roll over it unless you ollie.
