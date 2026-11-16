@@ -1,7 +1,7 @@
 {
   "name": "skateboard-halfpipe",
   "version": "1.0.0",
-  "description": "Small 3D skateboard and stunt scooter game on canvas: pump for speed, spin, flip and grab in a halfpipe. Plain JavaScript, no dependencies.",
+  "description": "Small 3D skateboard, stunt scooter and BMX game on canvas: pump for speed, spin, flip and grab, grind, jump a scrap car. Plain JavaScript, no dependencies.",
   "license": "MIT",
   "private": true,
   "scripts": {

@@ -43,6 +43,7 @@ function play(style, noise, tricks) {
                     if (t >= releaseAt) { K.down = false; releaseAt = null; }
                 }
             } else K.down = false;
+            if (style === 'pedal' && Math.abs(sn) < 0.12) K[s.v >= 0 ? 'right' : 'left'] = true;
             if (Math.abs(sn) < 0.01 && Math.sign(s.v) !== lastSign) { bottom.push(Math.abs(s.v)); lastSign = Math.sign(s.v); }
             spinTarget = 0;
         } else {
@@ -141,6 +142,68 @@ for (const [name, grind, balance, noise] of STREET) {
         `| grinds ${String(r.grinds).padStart(2)} | score ${String(r.score).padStart(5)} | bails ${r.bails}`);
 }
 
+// BMX in der Halfpipe: pumpen wie die anderen, oder nur treten (darf allein nicht über die Kante reichen)
+window.Halfpipe.setVehicle('bmx');
+for (const [name, style, noise, tricks] of [['bmx, pumps', 'pump', 0.08, true], ['bmx, pedals only', 'pedal', 0, false]]) {
+    const runs = [];
+    for (let i = 0; i < RUNS; i++) runs.push(play(style, noise, tricks));
+    const r = res[name] = { firstVert: median(runs.map((x) => x.firstVert)), score: median(runs.map((x) => x.score)), bails: median(runs.map((x) => x.bails)) };
+    console.log(name.padEnd(19), `first air over coping ${r.firstVert === null ? '   –' : r.firstVert.toFixed(1).padStart(4) + ' s'}`,
+        `| score ${String(r.score).padStart(5)} | bails ${r.bails}`);
+}
+window.Halfpipe.setVehicle('skate');
+
+// BMX-Park: pumpen an der kleinen Halfpipe, Bunnyhop über die Reifen und an der Kante übers Auto.
+// hop: springt (mit Reaktionsstreuung noise in s). Ohne hop fährt der Bot nur.
+function playBmx(hop, noise) {
+    window.Halfpipe.setPark('bmx');
+    H.start();
+    const dt = 1 / 120, C = H.consts;
+    let t = 0, releaseAt = null, crouch = false, jumpAt = null;
+    while (H.state.mode !== 'over' && t < 70) {
+        const s = H.state;
+        K.left = K.right = K.down = false;
+        if (s.mode === 'ground') {
+            const sn = Math.sin(H.TH[H.segAt(s.s)]), vert = s.v * sn, dir = Math.sign(s.v), x = H.posAt(s.s).x;
+            if (vert < -0.3 && Math.abs(sn) > 0.3) { crouch = true; releaseAt = null; }
+            else if (crouch) {
+                if (releaseAt === null) releaseAt = t + 0.05;
+                if (t >= releaseAt) { crouch = false; releaseAt = null; }
+            }
+            K.down = crouch;
+            if (hop && jumpAt === null && Math.abs(s.v) > 1) {
+                for (const o of H.obst) { // Absprung so, dass der höchste Punkt über der Mitte liegt
+                    const d = dir * ((o.x0 + o.x1) / 2 - x);
+                    if (o.type === 'tires' && Math.abs(sn) < 0.4 && d > 0 && d < Math.abs(s.v) * C.POP / C.G) jumpAt = t + Math.abs(gauss() * noise);
+                }
+                for (const l of H.lips) { // kurz vor der Kante
+                    const d = l.dir * (H.posAt(l.s).x - x);
+                    if (l.dir === dir && d > 0 && d < Math.abs(s.v) * 0.04) jumpAt = t + Math.abs(gauss() * noise * 0.5);
+                }
+            }
+        } else crouch = false;
+        if (jumpAt !== null && t >= jumpAt) { window.Halfpipe.press('jump', true); jumpAt = null; }
+        H.update(dt);
+        t += dt;
+    }
+    const s = H.state;
+    window.Halfpipe.setPark('pipe');
+    return { score: s.score, bails: s.bails, cars: s.cars, jumps: s.jumps };
+}
+for (const [name, hop, noise] of [['bmx park, rides', false, 0], ['bmx park, hops', true, 0.03], ['bmx park, sloppy', true, 0.08]]) {
+    const runs = [];
+    for (let i = 0; i < RUNS; i++) runs.push(playBmx(hop, noise));
+    const r = res[name] = { score: median(runs.map((x) => x.score)), bails: median(runs.map((x) => x.bails)), cars: median(runs.map((x) => x.cars)), jumps: median(runs.map((x) => x.jumps)) };
+    console.log(name.padEnd(19), `car jumps ${String(r.cars).padStart(2)} | all jumps ${String(r.jumps).padStart(2)} | score ${String(r.score).padStart(5)} | bails ${r.bails}`);
+}
+
+// Free Ride: keine Zeit, die Session endet nicht
+window.Halfpipe.setFreeRide(true);
+H.start();
+for (let i = 0; i < 120 * 90; i++) H.update(1 / 120);
+res.free = { mode: H.state.mode, time: H.state.time };
+window.Halfpipe.setFreeRide(false);
+
 const checks = [
     ['idle scores nothing and slows down', res.idle.score === 0 && res.idle.endKmh < 20],
     ['holding down all the time is worse than idle', res['holds down'].score === 0 && res['holds down'].endKmh < res.idle.endKmh],
@@ -153,6 +216,12 @@ const checks = [
     ['street: ollie onto the rail works (4+ grinds)', res['street, grinds'].grinds >= 4],
     ['street: grinding scores far more than airs only', res['street, grinds'].score > 2 * res['street, airs only'].score],
     ['street: without balancing you fall off', res['street, no balance'].bails > res['street, grinds'].bails && res['street, no balance'].score < res['street, grinds'].score],
+    ['bmx: pumping reaches the coping within 8 s', res['bmx, pumps'].firstVert !== null && res['bmx, pumps'].firstVert <= 8],
+    ['bmx: pedalling alone never reaches the coping', res['bmx, pedals only'].firstVert === null],
+    ['bmx park: riding without hopping crashes and scores nothing', res['bmx park, rides'].score === 0 && res['bmx park, rides'].bails >= 3],
+    ['bmx park: hopping clears the car again and again (5+)', res['bmx park, hops'].cars >= 5],
+    ['bmx park: sloppy hopping crashes more, scores less', res['bmx park, sloppy'].bails > res['bmx park, hops'].bails && res['bmx park, sloppy'].score < res['bmx park, hops'].score],
+    ['free ride: no time limit, the session keeps going', res.free.mode !== 'over' && res.free.time === 60],
 ];
 let ok = true;
 for (const [label, pass] of checks) { console.log(pass ? '  ok  ' : '  FAIL', label); ok = ok && pass; }

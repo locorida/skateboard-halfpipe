@@ -5,7 +5,8 @@
 // Schwung holt man durch Pumpen: beim Herunterfahren ↓ halten (Hocke), unten im Bogen loslassen (strecken).
 // Wer ↓ dauerhaft hält, wird bergauf langsamer.
 // Erwartet ein <canvas id="halfpipe"> (optional mit data-texts) und ein Element #halfpipe-status (aria-live).
-// window.Halfpipe.setVehicle('skate'|'scooter'), window.Halfpipe.press(k, down) für Touch-Knöpfe.
+// window.Halfpipe.setVehicle('skate'|'scooter'|'bmx'), setPark('pipe'|'street'|'bmx'), setFreeRide(bool),
+// window.Halfpipe.press(k, down) für Touch-Knöpfe. Im BMX-Park (Schrottauto, Reifen) geht nur das BMX.
 // window.Halfpipe.T: Zugriff auf Zustand und Physik für die Simulation (sim/balance.js).
 (function () {
     'use strict';
@@ -25,6 +26,9 @@
         flip: 'Kickflip', whip: 'Tailwhip', double: 'Doppel-',
         titleStreet: 'Street-Session', fifty: '50-50', fiveO: '5-0', boardslide: 'Boardslide', grind: 'Grind', feeble: 'Feeble',
         hintStreet: 'Leertaste vor dem Rail = Ollie drauf, dann mit ← → die Balance halten', woof: 'Wuff!',
+        titleBmx: 'BMX-Session', hintBmx: 'Leertaste = Bunnyhop: über die Reifen, und an der Kante der Rampe übers Auto',
+        barspin: 'Barspin', tabletop: 'Tabletop', peg: 'Double Peg', carJump: 'Autosprung', tireHop: 'Reifen-Hop',
+        free: 'Free Ride', subFree: 'Ohne Zeit, einfach fahren',
     }, JSON.parse((cv.dataset && cv.dataset.texts) || '{}'));
 
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -51,9 +55,19 @@
                 { t: 'GNAR', c: 'green', x0: -0.8, x1: 0.8, y0: 0.02, y1: 0.55, rot: -0.03 },
             ],
             wall: [190, 192, 194], flat: [178, 180, 182], box: [160, 164, 170], side: '#8d9196', sideLine: '#62676c', deck: [168, 172, 176] },
+        // BMX-Park: kleine Halfpipe, in der Mitte Absprung und Landerampe (gap) mit einem Schrottauto dazwischen,
+        // links und rechts Reifenstapel zum Drüberhüpfen. Nur mit dem BMX (only).
+        bmx: { R: 2.4, W: 14, KA: 2.4, KB: 3.8, KH: 0.65, ZW: 2.4, DECK: 1.8, rails: [], gap: true, only: 'bmx', best: 'halfpipe-best-bmx', graffiti: [],
+            obst: [
+                { type: 'tires', x0: -9.38, x1: -8.62, h: 0.48, pts: 90, name: 'tireHop' },
+                { type: 'car', x0: -1.8, x1: 1.8, h: 1.25, pts: 260, name: 'carJump' },
+                { type: 'tires', x0: 8.62, x1: 9.38, h: 0.48, pts: 90, name: 'tireHop' },
+            ],
+            wall: [214, 186, 140], flat: [128, 132, 134], box: [200, 168, 118], side: '#8b6a42', sideLine: '#5e4526', deck: [206, 178, 132] },
     };
     const G = 9.81;
-    let park = PARKS.pipe, parkId = 'pipe', R, W, XMAX, KA, KB, KH, ZW, DECK, RAILS;
+    const KBACK = 0.35; // Rückseite der Absprungrampe im BMX-Park (steil, 0.35 m)
+    let park = PARKS.pipe, parkId = 'pipe', R, W, XMAX, KA, KB, KH, ZW, DECK, RAILS, OBST = [], LIPS = [];
     // Fahrgefühl
     const VMAX = 11;              // m/s (ca. 40 km/h): Air über der Kante dann knapp 3 m
     const FRIC_A = 0.12, FRIC_B = 0.003; // Rollreibung + Luftwiderstand (m/s²)
@@ -69,7 +83,8 @@
         const ax = Math.abs(x);
         if (ax >= XMAX) return R;
         if (ax > W) { const d = ax - W; return R - Math.sqrt(Math.max(0, R * R - d * d)); }
-        if (ax <= KA) return KH;
+        if (park.gap) { const kf = KA - KBACK; if (ax <= kf) return 0; if (ax <= KA) return KH * (ax - kf) / KBACK; }
+        else if (ax <= KA) return KH;
         if (ax <= KB) return KH * (KB - ax) / (KB - KA);
         return 0;
     }
@@ -78,10 +93,10 @@
     let NS = 0, S_END = 0;
     function buildPark(id) {
         parkId = PARKS[id] ? id : 'pipe'; park = PARKS[parkId];
-        ({ R, W, KA, KB, KH, ZW, DECK } = park); XMAX = W + R; RAILS = park.rails;
+        ({ R, W, KA, KB, KH, ZW, DECK } = park); XMAX = W + R; RAILS = park.rails; OBST = park.obst || [];
         P.length = SS.length = TH.length = LEN.length = QUADS.length = 0;
         for (let a = 90; a > 0; a -= 3) { const r = a * Math.PI / 180; P.push({ x: -W - R * Math.sin(r), y: R - R * Math.cos(r) }); }
-        const KEYX = [-W, -KB, -KA, KA, KB, W];
+        const KEYX = park.gap ? [-W, -KB, -KA, -(KA - KBACK), KA - KBACK, KA, KB, W] : [-W, -KB, -KA, KA, KB, W];
         for (let i = 0; i < KEYX.length - 1; i++) {
             const x0 = KEYX[i], x1 = KEYX[i + 1], n = Math.max(1, Math.round((x1 - x0) / 0.5));
             for (let j = 0; j < n; j++) { const x = x0 + (x1 - x0) * j / n; P.push({ x, y: groundY(x) }); }
@@ -93,6 +108,8 @@
             LEN.push(l); TH.push(Math.atan2(dy, dx)); SS.push(SS[i] + l);
         }
         S_END = SS[NS];
+        // Kanten der Absprungrampen: links geht es nach rechts in die Luft, rechts nach links
+        LIPS = park.gap ? [{ s: sFromX(-KA).s, dir: 1 }, { s: sFromX(KA).s, dir: -1 }] : [];
         buildQuads();
     }
     function segAt(s) { let lo = 0, hi = NS - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (SS[m] <= s) lo = m; else hi = m - 1; } return lo; }
@@ -106,7 +123,9 @@
 
     // ---------- Zustand ----------
     const keys = { left: false, right: false, down: false };
-    let jumpQ = false, flipQ = false, vehicle = 'skate', hintDone = false;
+    // vehicle: was gerade gefahren wird, chosen: was ausgewählt ist (im BMX-Park geht nur das BMX)
+    let jumpQ = false, flipQ = false, vehicle = 'skate', chosen = 'skate', hintDone = false, freeRide = false;
+    const POP = () => (vehicle === 'bmx' ? 3.8 : 3.6); // Ollie bzw. Bunnyhop (m/s nach oben)
     let best = 0;
     function loadBest() { best = 0; try { best = parseInt(localStorage.getItem(park.best), 10) || 0; } catch (e) { /* ohne Speicher eben ohne Rekord */ } }
     let st = {};
@@ -117,22 +136,24 @@
             flipT: 0, flips: 0, grab: false, grabT: 0, pitch: 0, tA: 0, T: 1, maxH: 0, crouch: 0, bailT: 0,
             charge: 0, sinceDown: 9, prevDown: false, pumpFlash: 0, pumps: 0,
             rail: null, gx0: 0, bal: 0, balDrift: 0, gName: '', gPts: 0, gParts: null, grinds: 0,
+            cleared: [], jumps: 0, cars: 0, lipT: -1, lipTh: 0,
             score: 0, combo: 0, time: SESSION, newBest: false, airs: 0, bails: 0, maxAir: 0 };
         pops.length = 0;
     }
     reset();
-    const title = () => (parkId === 'street' ? TXT.titleStreet : TXT.title);
+    const title = () => (parkId === 'street' ? TXT.titleStreet : parkId === 'bmx' ? TXT.titleBmx : TXT.title) + (freeRide ? ' · ' + TXT.free : '');
     function start() { reset(); st.mode = 'ground'; st.pitch = TH[0]; announce(title()); }
     function pop(text, sub) { pops.push({ text, sub: sub || '', t: 0 }); if (pops.length > 3) pops.shift(); }
     function announce(s) { if (status) status.textContent = s; }
-    function takeoff() { st.yaw0 = st.yaw; st.flipT = 0; st.flips = 0; st.grab = false; st.grabT = 0; st.tA = 0; st.maxH = 0; st.charge = 0; }
+    function takeoff() { st.yaw0 = st.yaw; st.flipT = 0; st.flips = 0; st.grab = false; st.grabT = 0; st.tA = 0; st.maxH = 0; st.charge = 0; st.cleared = []; st.lipT = -1; }
     function toVert(side, vy) { st.mode = 'vert'; st.side = side; st.h = 0; st.vy = vy; st.tA = 0; st.T = 2 * vy / G; }
     function finish() {
         st.mode = 'over';
+        if (freeRide) { announce(`${st.score} ${TXT.points}`); return; } // Free Ride zählt nicht für den Rekord
         if (st.score > best) { best = st.score; st.newBest = st.score > 0; try { localStorage.setItem(park.best, String(best)); } catch (e) { /* egal */ } }
         announce(`${TXT.over}: ${st.score} ${TXT.points}. ${st.newBest ? TXT.newRecord : TXT.record + ': ' + best + '.'} ${TXT.again}`);
     }
-    function bail() { ooh = 1.3; cheer = 0; st.mode = 'bail'; st.bailT = 0; st.combo = 0; st.grab = false; st.rail = null; st.bails++; pop(TXT.bail, TXT.bailSub); announce(TXT.bail); }
+    function bail() { ooh = 1.3; cheer = 0; st.mode = 'bail'; st.bailT = 0; st.combo = 0; st.grab = false; st.rail = null; st.cleared = []; st.bails++; pop(TXT.bail, TXT.bailSub); announce(TXT.bail); }
 
     // Drehung muss in Schritten von step stehen (Landung: 180°, Rail: 90° = quer), Flip fertig sein. null = Sturz
     function checkSpin(step, tol) {
@@ -144,11 +165,12 @@
     }
     function airTricks(halfs) {
         const parts = []; let pts = 0;
-        const flipName = vehicle === 'skate' ? TXT.flip : TXT.whip;
+        const flipName = vehicle === 'skate' ? TXT.flip : vehicle === 'bmx' ? TXT.barspin : TXT.whip;
+        for (const o of st.cleared) { parts.push(TXT[o.name]); pts += o.pts; } // über Auto oder Reifen gesprungen
         if (st.flips) { parts.push((st.flips === 2 ? TXT.double : st.flips > 2 ? st.flips + '× ' : '') + flipName); pts += Math.round(300 * st.flips * (st.flips > 1 ? 1.3 : 1)); }
         const deg = Math.abs(halfs) * 180;
         if (deg) { parts.push(String(deg)); pts += ({ 180: 100, 360: 250, 540: 450, 720: 700 })[deg] || Math.round(deg * 1.1); }
-        if (st.grabT > 0.15) { parts.push(vehicle === 'skate' ? TXT.grab : TXT.tuck); pts += Math.round(st.grabT * 220); }
+        if (st.grabT > 0.15) { parts.push(vehicle === 'skate' ? TXT.grab : vehicle === 'bmx' ? TXT.tabletop : TXT.tuck); pts += Math.round(st.grabT * 220); }
         return { parts, pts };
     }
     function award(parts, pts) {
@@ -195,7 +217,8 @@
         const sd = Math.random() < 0.5 ? -1 : 1;
         st.bal = sd * (BAL_START + 0.15 * Math.random()); st.balDrift = sd * BAL_DRIFT;
         st.gParts = t.parts; st.gPts = t.pts; st.gSlide = slide;
-        st.gName = vehicle === 'skate' ? (slide ? TXT.boardslide : r.type === 'ledge' ? TXT.fiveO : TXT.fifty) : (slide ? TXT.feeble : TXT.grind);
+        st.gName = vehicle === 'skate' ? (slide ? TXT.boardslide : r.type === 'ledge' ? TXT.fiveO : TXT.fifty)
+            : slide ? TXT.feeble : vehicle === 'bmx' ? TXT.peg : TXT.grind;
         announce(st.gName);
     }
     function endGrind(vy) {
@@ -227,13 +250,14 @@
         st.pumpFlash = Math.max(0, st.pumpFlash - dt);
         clock += dt; cheer = Math.max(0, cheer - dt); ooh = Math.max(0, ooh - dt);
         if (st.mode === 'ready' || st.mode === 'over') return;
-        st.time = Math.max(0, st.time - dt);
+        st.tRun = (st.tRun || 0) + dt; // gefahrene Zeit (auch im Free Ride), für die Hinweise
+        if (!freeRide) st.time = Math.max(0, st.time - dt);
         // Rails stehen hinter der Fahrlinie: beim Grinden rückt der Fahrer nach hinten, danach wieder nach vorn
         st.z += ((st.mode === 'grind' ? st.rail.z : st.mode === 'bail' ? st.z : 0) - st.z) * Math.min(1, dt * 14);
         if (st.mode === 'bail') {
             st.bailT += dt;
             if (st.bailT > 1.4) {
-                if (st.time <= 0) return finish();
+                if (st.time <= 0 && !freeRide) return finish();
                 Object.assign(st, { mode: 'ground', s: 0.02, v: 0, z: 0, yaw: 0, flipT: 0, pitch: TH[0], bailT: 0, charge: 0 });
             }
             return;
@@ -241,7 +265,24 @@
         const inAir = st.mode === 'air' || st.mode === 'vert';
         st.crouch += (((keys.down || (inAir && st.grab)) ? 1 : 0) - st.crouch) * Math.min(1, dt * 10);
         if (st.mode === 'ground') groundStep(dt); else if (st.mode === 'grind') grindStep(dt); else airStep(dt);
-        if (st.mode === 'ground' && st.time <= 0) finish();
+        if (st.mode === 'ground' && st.time <= 0 && !freeRide) finish();
+    }
+
+    // Hindernisse (BMX-Park): Höhe über dem Boden an der Stelle x, 0 = nicht dort. Das Auto hat vorne und hinten
+    // die niedrigere Motorhaube und den Kofferraum, in der Mitte das Dach
+    function obstTop(o, x) {
+        if (x <= o.x0 || x >= o.x1) return 0;
+        if (o.type === 'car') return Math.abs(x - (o.x0 + o.x1) / 2) < 0.95 ? o.h : 0.85;
+        return o.h;
+    }
+    function crash(o, dir) { st.s = sFromX(dir >= 0 ? o.x0 - 0.5 : o.x1 + 0.5).s; bail(); }
+    // Bunnyhop / Ollie mitten im Absprung: Schub senkrecht zur Rampe
+    function hop(th) { st.vx -= POP() * Math.sin(th); st.vy += POP() * Math.cos(th); st.lipT = -1; }
+    function launchLip(l) {
+        const th = TH[segAt(l.s - l.dir * 0.05)], v = st.v, p = posAt(l.s);
+        takeoff(); st.mode = 'air'; st.x = p.x; st.y = p.y + 0.02;
+        st.vx = v * Math.cos(th); st.vy = v * Math.sin(th); st.lipT = 0; st.lipTh = th;
+        if (jumpQ) { jumpQ = false; hop(th); }
     }
 
     function groundStep(dt) {
@@ -271,18 +312,32 @@
         }
         st.prevDown = keys.down;
         if (Math.abs(sn) < 0.12) { // anschieben auf flachem Boden
-            if (keys.left && st.v > -6) st.v -= 3.5 * dt;
-            if (keys.right && st.v < 6) st.v += 3.5 * dt;
+            if (vehicle === 'bmx') { // treten: kräftiger, aber nur bis 7.5 m/s inklusive Höhe (oben auf der Funbox zählt die mit)
+                const e = Math.sqrt(st.v * st.v + 2 * G * posAt(st.s).y);
+                if (keys.left && e < 7.5 && st.v < 0.5) st.v -= 4 * dt;
+                if (keys.right && e < 7.5 && st.v > -0.5) st.v += 4 * dt;
+                if ((keys.left && st.v > 0.5) || (keys.right && st.v < -0.5)) st.v -= Math.sign(st.v) * 4 * dt; // Rücktritt = bremsen
+            } else {
+                if (keys.left && st.v > -6) st.v -= 3.5 * dt;
+                if (keys.right && st.v < 6) st.v += 3.5 * dt;
+            }
         }
         st.v = clamp(st.v, -VMAX, VMAX);
         const s0 = st.s; st.s += st.v * dt;
         if (st.s >= S_END) { if (st.v > 1.2) { takeoff(); return toVert(1, st.v); } st.s = S_END - 1e-3; st.v = -Math.abs(st.v) * 0.5; }
         else if (st.s <= 0) { if (st.v < -1.2) { takeoff(); return toVert(-1, -st.v); } st.s = 1e-3; st.v = Math.abs(st.v) * 0.5; }
+        for (const l of LIPS) { // über die Kante der Absprungrampe: ab in die Luft
+            if (l.dir * st.v > 0.3 && (l.dir > 0 ? s0 < l.s && st.s >= l.s : s0 > l.s && st.s <= l.s)) return launchLip(l);
+        }
+        if (OBST.length) { // ins Hindernis gefahren
+            const fx = posAt(st.s).x + Math.sign(st.v) * 0.45;
+            for (const o of OBST) if (obstTop(o, fx) > 0) return crash(o, st.v);
+        }
         if (jumpQ) { // Ollie
             jumpQ = false;
             const p = posAt(st.s); takeoff(); st.mode = 'air';
             st.x = p.x; st.y = p.y + 0.02;
-            st.vx = st.v * Math.cos(th) - 3.6 * Math.sin(th); st.vy = st.v * Math.sin(th) + 3.6 * Math.cos(th);
+            st.vx = st.v * Math.cos(th) - POP() * Math.sin(th); st.vy = st.v * Math.sin(th) + POP() * Math.cos(th);
             return;
         }
         th = TH[segAt(st.s)];
@@ -290,6 +345,8 @@
     }
 
     function airStep(dt) {
+        // etwas zu spät an der Kante gedrückt: bis 0.15 s danach zählt der Bunnyhop noch
+        if (jumpQ && st.mode === 'air' && st.lipT >= 0 && st.tA < 0.15) hop(st.lipTh);
         jumpQ = false;
         st.prevDown = false;
         st.tA += dt;
@@ -311,10 +368,16 @@
             }
             return;
         }
-        const y0 = st.y;
+        const y0 = st.y, x0 = st.x;
         st.vy -= G * dt; st.x += st.vx * dt; st.y += st.vy * dt;
         if (st.vy < 0) for (const r of RAILS) { // von oben aufs Rail: Grind
             if (y0 >= r.h && st.y <= r.h && st.x > r.x0 + 0.15 && st.x < r.x1 - 0.15) { lockRail(r); return; }
+        }
+        for (const o of OBST) { // Räder (±0.3 m) berühren das Hindernis: Sturz; über die Mitte hinweg: geschafft
+            const top = Math.max(obstTop(o, st.x - 0.3), obstTop(o, st.x + 0.3));
+            if (top > 0 && st.y < top) return crash(o, st.vx);
+            const mid = (o.x0 + o.x1) / 2;
+            if ((x0 - mid) * (st.x - mid) <= 0 && !st.cleared.includes(o)) { st.cleared.push(o); st.jumps++; if (o.type === 'car') st.cars++; }
         }
         const gy = groundY(st.x);
         st.maxH = Math.max(st.maxH, st.y - gy);
@@ -324,6 +387,8 @@
             if (st.y >= R) { st.mode = 'vert'; st.side = side; st.h = st.y - R; st.T = st.tA + 2 * Math.max(0.3, st.vy) / G; }
             else st.vx = -st.vx * 0.3;
         } else if (st.vy < 0 && st.y <= gy) {
+            // auf der steilen Rückseite einer Absprungrampe aufgesetzt: Sturz
+            if (park.gap && Math.abs(st.x) > KA - KBACK + 0.02 && Math.abs(st.x) < KA - 0.04) { st.s = sFromX(st.x).s; bail(); return; }
             const f = sFromX(st.x), th = TH[f.i];
             const vt = st.vx * Math.cos(th) + st.vy * Math.sin(th);
             const vn = -st.vx * Math.sin(th) + st.vy * Math.cos(th);
@@ -359,7 +424,8 @@
         for (let i = 0; i < NS; i++) {
             const a = P[i], b = P[i + 1], n = [-Math.sin(TH[i]), Math.cos(TH[i]), 0];
             const midX = (a.x + b.x) / 2, ax = Math.abs(midX);
-            const col = ax > W ? park.wall : ax < KB ? park.box : park.flat;
+            const box = park.gap ? ax > KA - KBACK - 0.01 && ax < KB : ax < KB;
+            const col = ax > W ? park.wall : box ? park.box : park.flat;
             const sh = 0.66 + 0.34 * Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1]);
             for (let j = 0; j < 4; j++) {
                 const z0 = -ZW + j * ZW / 2, z1 = z0 + ZW / 2;
@@ -451,7 +517,7 @@
         for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(-34 + r() * 68, -fs * 0.2, fs * 0.05, 0, 7); ctx.fill(); }
         ctx.restore();
     }
-    function bannerRow(x0, x1, y0, y1, z, first, poles) {
+    function bannerRow(x0, x1, y0, y1, z, first, poles, brands = BRANDS) {
         const n = Math.max(1, Math.round((x1 - x0) / 4.2)), w = (x1 - x0) / n;
         for (let i = 0; i < n; i++) {
             const a = x0 + i * w + 0.12, b = x0 + (i + 1) * w - 0.12;
@@ -460,7 +526,7 @@
                 for (const px of [a + 0.15, b - 0.15]) { const p = proj(px, 0, z), q = proj(px, y1, z); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); }
                 ctx.stroke();
             }
-            banner(a, b, y0, y1, z, BRANDS[(first + i) % BRANDS.length]);
+            banner(a, b, y0, y1, z, brands[(first + i) % brands.length]);
         }
     }
 
@@ -587,7 +653,101 @@
         ctx.fillStyle = '#b9b7b1'; path([[x0 - 0.05, h, z + 0.02], [x1 + 0.05, h, z + 0.02], [x1 + 0.05, h + 0.12, z + 0.02], [x0 - 0.05, h + 0.12, z + 0.02]]); ctx.fill();
     }
 
+    // ---------- BMX-Park: Schrottauto, Reifen, Wellblechzaun, Wrackstapel ----------
+    // erst hier gewürfelt, damit die anderen Parks genauso aussehen wie vorher
+    const BMX_BRANDS = [
+        { name: 'RUSTY PEG CO.', bg: '#2a2a2a', fg: '#ff8a2a', bar: '#ff8a2a' },
+        { name: 'GAP JUMPERS', bg: '#f2c230', fg: '#1d1d1d' },
+        { name: 'HARZ DIRT CREW', bg: '#3c6e3a', fg: '#ffffff' },
+        { name: 'TWENTY INCH', bg: '#ffffff', fg: '#1f2d4d', bar: '#d33b2f' },
+    ];
+    const WRECKS = [ // Stapel hinter dem Zaun: x, Höhe im Stapel, Farbe
+        [-13.5, 0, [150, 70, 45]], [-13.2, 1, [78, 104, 132]], [-13.8, 2, [120, 120, 96]],
+        [-9.6, 0, [96, 120, 80]], [-9.9, 1, [170, 150, 110]],
+        [10.8, 0, [130, 60, 60]], [11.2, 1, [90, 96, 104]], [10.6, 2, [176, 120, 60]],
+        [14.8, 0, [70, 90, 120]],
+    ];
+    const BMX_CROWD = makeCrowd([[-12.4, 0], [-6.8, 0], [-5.9, 0], [6.4, 0], [12.9, 0]]);
+    const RUST = [];
+    for (let i = 0; i < 7; i++) RUST.push([-1.6 + rnd() * 3.2, 0.32 + rnd() * 0.4, 0.07 + rnd() * 0.12]);
+    // Quader, nur die zur Kamera zeigenden Seiten (konvex, also ohne Sortieren)
+    function box(x0, x1, y0, y1, z0, z1, col) {
+        const F = [
+            [[0, 0, 1], [(x0 + x1) / 2, (y0 + y1) / 2, z1], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], 0.9],
+            [[0, 1, 0], [(x0 + x1) / 2, y1, (z0 + z1) / 2], [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], 1.08],
+            [[-1, 0, 0], [x0, (y0 + y1) / 2, (z0 + z1) / 2], [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], 0.76],
+            [[1, 0, 0], [x1, (y0 + y1) / 2, (z0 + z1) / 2], [[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], 0.7],
+        ];
+        for (const [n, c, pts, s] of F) {
+            if (n[0] * (eye[0] - c[0]) + n[1] * (eye[1] - c[1]) + n[2] * (eye[2] - c[2]) <= 0) continue;
+            ctx.fillStyle = rgb(col, s); path(pts); ctx.fill();
+        }
+    }
+    // Schrottauto (Seitenansicht längs der Fahrlinie): platte Reifen, Rost, gesprungene Scheiben
+    function drawCar(cx, cz, y0, col, rust) {
+        for (const dx of [-1.2, 1.2]) { // Räder auf der vorderen Seite, oben verdeckt die Karosserie sie
+            const c = proj(cx + dx, y0 + 0.27, cz + 0.8), r = 0.3 * FOCAL / c[2];
+            ctx.fillStyle = '#1c1c1c'; ctx.beginPath(); ctx.ellipse(c[0], c[1] + r * 0.08, r, r * 0.86, 0, 0, 7); ctx.fill(); // platt
+            ctx.fillStyle = '#6d6a64'; ctx.beginPath(); ctx.arc(c[0], c[1], r * 0.42, 0, 7); ctx.fill();
+        }
+        box(cx - 1.85, cx + 1.85, y0 + 0.28, y0 + 0.85, cz - 0.82, cz + 0.82, col);
+        box(cx - 0.95, cx + 0.8, y0 + 0.85, y0 + 1.25, cz - 0.7, cz + 0.7, col.map((v) => v * 0.92));
+        const zf = cz + 0.82, zc = cz + 0.7;
+        ctx.fillStyle = '#2a3238'; // Seitenfenster
+        for (const [a, b] of [[-0.85, -0.12], [0.0, 0.7]]) { path([[cx + a, y0 + 0.9, zc], [cx + b, y0 + 0.9, zc], [cx + b - 0.08, y0 + 1.2, zc], [cx + a + 0.1, y0 + 1.2, zc]]); ctx.fill(); }
+        ctx.strokeStyle = 'rgba(220,230,235,.7)'; ctx.lineWidth = 1; ctx.beginPath(); // Sprung in der Scheibe
+        const k0 = proj(cx - 0.6, y0 + 1.15, zc), k1 = proj(cx - 0.4, y0 + 1.02, zc), k2 = proj(cx - 0.18, y0 + 1.08, zc), k3 = proj(cx - 0.45, y0 + 0.93, zc);
+        ctx.moveTo(k0[0], k0[1]); ctx.lineTo(k1[0], k1[1]); ctx.lineTo(k2[0], k2[1]); ctx.moveTo(k1[0], k1[1]); ctx.lineTo(k3[0], k3[1]); ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); // Türfugen
+        for (const dx of [-0.95, -0.08, 0.8]) { const p = proj(cx + dx, y0 + 0.3, zf), q = proj(cx + dx, y0 + 0.84, zf); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); }
+        ctx.stroke();
+        if (rust) for (const [dx, y, r] of RUST) { // Rostflecken
+            const p = proj(cx + dx, y0 + y, zf); ctx.fillStyle = 'rgba(122,62,28,.75)';
+            ctx.beginPath(); ctx.ellipse(p[0], p[1], r * FOCAL / p[2], r * 0.7 * FOCAL / p[2], 0.4, 0, 7); ctx.fill();
+        }
+    }
+    // Reifenstapel: liegende Reifen übereinander
+    function drawTires(xc, zc, n) {
+        const ring = (y, r) => { ctx.beginPath(); for (let k = 0; k <= 20; k++) { const a = k / 20 * Math.PI * 2, p = proj(xc + Math.cos(a) * r, y, zc + Math.sin(a) * r); if (k) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); } ctx.closePath(); };
+        for (let i = 0; i < n; i++) {
+            const y0 = i * 0.16, y1 = y0 + 0.16;
+            ctx.beginPath(); // Lauffläche vorne
+            for (let k = 0; k <= 10; k++) { const a = k / 10 * Math.PI, p = proj(xc + Math.cos(a) * 0.38, y0, zc + Math.sin(a) * 0.38); if (k) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }
+            for (let k = 10; k >= 0; k--) { const a = k / 10 * Math.PI, p = proj(xc + Math.cos(a) * 0.38, y1, zc + Math.sin(a) * 0.38); ctx.lineTo(p[0], p[1]); }
+            ctx.fillStyle = '#1a1a1a'; ctx.fill();
+            ring(y1, 0.38); ctx.fillStyle = '#2e2e2e'; ctx.fill();
+            ring(y1, 0.19); ctx.fillStyle = '#0c0c0c'; ctx.fill();
+        }
+    }
+    function drawObstacles() {
+        for (const o of OBST) {
+            const xc = (o.x0 + o.x1) / 2;
+            if (o.type === 'car') drawCar(xc, 0, 0, [74, 140, 150], true);
+            else drawTires(xc, 0, 3);
+        }
+    }
+    function drawScrapyard() {
+        const g = ctx.createLinearGradient(0, 0, 0, CH);
+        g.addColorStop(0, '#93bfe0'); g.addColorStop(0.6, '#e6e2d6'); g.addColorStop(1, '#ece6da');
+        ctx.fillStyle = g; ctx.fillRect(0, 0, CW, CH);
+        ctx.fillStyle = '#a9b59a'; path([[-140, 0, -90], ...RIDGE, [140, 0, -90]]); ctx.fill();
+        ctx.fillStyle = '#b8a27c'; path([[-90, 0, -40], [90, 0, -40], [90, 0, 9], [-90, 0, 9]]); ctx.fill(); // Schotter
+        for (const [x, lvl, col] of WRECKS) drawCar(x, -9.5, lvl * 1.05, col, false);
+        const zb = -ZW - 1.3, x0 = -XMAX - DECK - 2, x1 = XMAX + DECK + 2, fh = 2.3; // Wellblechzaun
+        ctx.fillStyle = '#9ba3a8'; path([[x0, 0, zb], [x1, 0, zb], [x1, fh, zb], [x0, fh, zb]]); ctx.fill();
+        ctx.strokeStyle = 'rgba(60,66,70,.35)'; ctx.lineWidth = 1; ctx.beginPath();
+        for (let x = x0; x < x1; x += 0.3) { const p = proj(x, 0, zb), q = proj(x, fh, zb); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); }
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(140,70,30,.35)'; // Rostlaufspuren
+        for (let x = x0 + 1.7; x < x1; x += 5.3) path([[x, 0.6, zb], [x + 0.5, 0.6, zb], [x + 0.35, fh, zb], [x + 0.15, fh, zb]]), ctx.fill();
+        ctx.fillStyle = '#8f8f8a'; path([[x0, 0.002, zb], [x1, 0.002, zb], [x1, 0.002, ZW + 1.2], [x0, 0.002, ZW + 1.2]]); ctx.fill(); // Asphalt
+        bannerRow(-XMAX - DECK - 1.6, XMAX + DECK + 1.6, 1.05, 2.0, zb + 0.01, 0, false, BMX_BRANDS);
+        drawCrowd(BMX_CROWD, zb + 0.6, 0);
+        drawTires(-XMAX - DECK - 0.4, zb + 0.8, 4); drawTires(XMAX + DECK + 0.6, zb + 0.9, 2); // Deko-Stapel am Zaun
+    }
+
     function drawBackground() {
+        if (parkId === 'bmx') return drawScrapyard();
         const street = parkId === 'street';
         const g = ctx.createLinearGradient(0, 0, 0, CH);
         if (street) { g.addColorStop(0, '#7fb2dc'); g.addColorStop(0.6, '#e2e6ea'); g.addColorStop(1, '#eceae6'); }
@@ -693,6 +853,7 @@
     // ---------- Fahrer ----------
     function riderBase() {
         if (st.mode === 'ready') return { x: -XMAX - 0.55, y: R, z: 0, pitch: 0 };
+        if (st.mode === 'grind' && vehicle === 'bmx') return { x: st.x, y: st.y - 0.27, z: st.z, pitch: st.pitch }; // auf den Pegs
         if (st.mode === 'air' || st.mode === 'grind') return { x: st.x, y: st.y, z: st.z, pitch: st.pitch };
         if (st.mode === 'vert') return { x: st.side * XMAX, y: R + st.h, z: st.z, pitch: st.pitch };
         const p = posAt(st.s); return { x: p.x, y: p.y, z: st.z, pitch: st.pitch };
@@ -722,6 +883,7 @@
         const line = (a, bb, col, w) => { ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, w * FOCAL / a[2]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(bb[0], bb[1]); ctx.stroke(); };
         const dot = (a, r, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(a[0], a[1], Math.max(1.5, r * FOCAL / a[2]), 0, 7); ctx.fill(); };
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        if (vehicle === 'bmx') return drawBmx(X, line, dot, c);
 
         const deck = sk ? [[-0.42, 0.09, -0.11], [0.42, 0.09, -0.11], [0.42, 0.09, 0.11], [-0.42, 0.09, 0.11]]
             : [[-0.34, 0.09, -0.07], [0.3, 0.09, -0.07], [0.3, 0.09, 0.07], [-0.34, 0.09, 0.07]];
@@ -761,6 +923,50 @@
         }
     }
 
+    // BMX (20 Zoll) mit stehendem Fahrer. Vorne ist +x. Tabletop (↓ in der Luft): Rad und Fahrer kippen zur Seite,
+    // Barspin (↑): der Lenker dreht sich einmal um den Vorbau, die Hände lassen kurz los
+    let tabA = 0;
+    function drawBmx(X, line, dot, c) {
+        tabA += ((st.grab && (st.mode === 'air' || st.mode === 'vert') ? 1.05 : 0) - tabA) * 0.25;
+        const ct = Math.cos(tabA), stb = Math.sin(tabA);
+        const B = (p) => { const yy = p[1] - 0.3; return X([p[0], 0.3 + yy * ct - p[2] * stb, yy * stb + p[2] * ct]); };
+        const bs = st.flipT > 0 ? st.flipT * Math.PI * 2 : 0;
+        const RW = 0.27;
+        for (const cx of [-0.5, 0.5]) { // Räder
+            const pts = []; for (let k = 0; k <= 22; k++) { const a = k / 22 * Math.PI * 2; pts.push(B([cx + Math.cos(a) * RW, RW + Math.sin(a) * RW, 0])); }
+            ctx.strokeStyle = 'rgba(190,195,200,.75)'; ctx.lineWidth = 1; ctx.beginPath(); // Speichen
+            const hub = B([cx, RW, 0]); for (let k = 0; k < 22; k += 3) { ctx.moveTo(hub[0], hub[1]); ctx.lineTo(pts[k][0], pts[k][1]); }
+            ctx.stroke();
+            ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = Math.max(2, 0.055 * FOCAL / hub[2]); ctx.beginPath();
+            pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.stroke();
+            line(B([cx, RW, -0.13]), B([cx, RW, 0.13]), '#b8bec2', 0.045); // Pegs
+        }
+        const frame = '#1d9bd1', RA = [-0.5, RW, 0], BB = [-0.04, 0.3, 0], ST = [-0.2, 0.66, 0], HT = [0.36, 0.7, 0], HB = [0.39, 0.58, 0], FA = [0.5, RW, 0];
+        line(B(RA), B(BB), frame, 0.04); line(B(RA), B(ST), frame, 0.035);
+        line(B(BB), B(ST), frame, 0.05); line(B(BB), B(HB), frame, 0.055); line(B(ST), B(HT), frame, 0.05);
+        line(B(HB), B(FA), '#2b2b2b', 0.045); line(B(HB), B(HT), frame, 0.06);
+        line(B(ST), B([-0.23, 0.74, 0]), '#2b2b2b', 0.03); line(B([-0.36, 0.76, 0]), B([-0.1, 0.78, 0]), '#1b1b1b', 0.06); // Sattel
+        dot(B(BB), 0.07, '#555');
+        const ST2 = [0.33, 0.9, 0]; line(B(HT), B(ST2), '#2b2b2b', 0.04); // Vorbau
+        const bx = Math.sin(bs) * 0.3, bz = Math.cos(bs) * 0.3;
+        const gL = [ST2[0] - bx, 0.96, -bz], gR = [ST2[0] + bx, 0.96, bz];
+        line(B([ST2[0] - bx * 0.5, 0.9, -bz * 0.5]), B([ST2[0] + bx * 0.5, 0.9, bz * 0.5]), '#2b2b2b', 0.03);
+        line(B(gL), B(gR), '#2b2b2b', 0.035);
+        // Fahrer: steht in den Pedalen, beim Pumpen tiefer
+        const skin = '#f0c8a0', shirt = '#2f6b45', pants = '#2b3440', helmet = '#d33b2f';
+        const hipY = 1.0 - 0.26 * c, shY = 1.42 - 0.3 * c;
+        const fA = B([0.1, 0.33, 0.1]), fB = B([-0.18, 0.27, -0.1]);
+        const kA = B([0.2, 0.68 - 0.1 * c, 0.12]), kB = B([0.06, 0.64 - 0.1 * c, -0.12]);
+        const hip = B([-0.12, hipY, 0]), sh = B([0.1, shY, 0]);
+        const sL = B([0.1, shY - 0.02, -0.17]), sR = B([0.1, shY - 0.02, 0.17]);
+        const free = bs > 0, hL = free ? B([0.2, shY - 0.1, -0.32]) : B(gL), hR = free ? B([0.2, shY - 0.1, 0.32]) : B(gR);
+        const head = B([0.18, shY + 0.18, 0]);
+        line(fA, kA, pants, 0.11); line(kA, hip, pants, 0.12); line(fB, kB, pants, 0.11); line(kB, hip, pants, 0.12);
+        line(hip, sh, shirt, 0.2);
+        line(sL, hL, shirt, 0.08); line(sR, hR, shirt, 0.08); dot(hL, 0.045, skin); dot(hR, 0.045, skin);
+        dot(head, 0.13, helmet); dot(B([0.27, shY + 0.16, 0]), 0.055, skin); // Integralhelm mit Gesichtsöffnung
+    }
+
     function drawShadow(b) {
         if (st.mode === 'vert' || st.mode === 'ready') return;
         const gx = clamp(b.x, -XMAX + 0.3, XMAX - 0.3), gy = groundY(gx);
@@ -778,7 +984,7 @@
 
     function drawHud() {
         txt(`${TXT.points} ${st.score}`, 18, 34, 22);
-        txt(`${TXT.time} ${Math.ceil(st.time)} s`, 18, 62, 18);
+        txt(freeRide ? TXT.free : `${TXT.time} ${Math.ceil(st.time)} s`, 18, 62, 18);
         if (st.combo > 1) txt(`${TXT.combo} × ${st.combo}`, 18, 88, 18, 'left', '#c0392b');
         const v = st.mode === 'ground' || st.mode === 'grind' ? Math.abs(st.v) : st.mode === 'air' ? Math.hypot(st.vx, st.vy) : Math.abs(st.vy);
         if (st.mode === 'grind') { // Balance: Strich in der Mitte halten, mit ← → gegensteuern
@@ -803,14 +1009,16 @@
             if (p.sub) txt(p.sub, CW / 2, y + 24, 18, 'center', '#2f6b45');
             ctx.globalAlpha = 1;
         });
-        if (!hintDone && st.mode === 'ground' && st.time < SESSION - 1.5) txt(TXT.hint, CW / 2, CH - 24, 18, 'center', '#1d2a22');
-        else if (parkId === 'street' && !st.grinds && st.mode === 'ground' && st.time < SESSION - 6) txt(TXT.hintStreet, CW / 2, CH - 24, 18, 'center', '#1d2a22');
+        const elapsed = st.tRun || 0;
+        if (parkId === 'bmx') { if (st.cars < 2 && st.mode === 'ground' && elapsed > 1) txt(TXT.hintBmx, CW / 2, CH - 24, 18, 'center', '#1d2a22'); }
+        else if (!hintDone && st.mode === 'ground' && elapsed > 1.5) txt(TXT.hint, CW / 2, CH - 24, 18, 'center', '#1d2a22');
+        else if (parkId === 'street' && !st.grinds && st.mode === 'ground' && elapsed > 6) txt(TXT.hintStreet, CW / 2, CH - 24, 18, 'center', '#1d2a22');
         if (st.mode === 'ready' || st.mode === 'over') {
             ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillRect(CW / 2 - 260, CH / 2 - 70, 520, 130);
             if (st.mode === 'ready') {
                 txt(title(), CW / 2, CH / 2 - 26, 30, 'center');
                 txt(TXT.start, CW / 2, CH / 2 + 10, 20, 'center', '#2f6b45');
-                txt(TXT.sub, CW / 2, CH / 2 + 40, 16, 'center', '#4a5a50');
+                txt(freeRide ? TXT.subFree : TXT.sub, CW / 2, CH / 2 + 40, 16, 'center', '#4a5a50');
             } else {
                 txt(`${TXT.over}: ${st.score} ${TXT.points}`, CW / 2, CH / 2 - 22, 28, 'center');
                 txt(st.newBest ? TXT.newRecord : `${TXT.record}: ${best}`, CW / 2, CH / 2 + 12, 20, 'center', st.newBest ? '#c0392b' : '#4a5a50');
@@ -825,6 +1033,7 @@
         drawBackground();
         drawPipe();
         drawRails();
+        drawObstacles();
         if (parkId === 'pipe') drawCrowd(DECK_CROWD, 0, R);
         drawShadow(b);
         drawRider(b);
@@ -874,11 +1083,18 @@
 
     window.Halfpipe = {
         press,
-        setVehicle(v) { vehicle = v === 'scooter' ? 'scooter' : 'skate'; },
+        // 'skate' | 'scooter' | 'bmx'. Im BMX-Park bleibt es beim BMX, die Wahl gilt dann ab dem nächsten Park
+        setVehicle(v) { chosen = ['scooter', 'bmx'].includes(v) ? v : 'skate'; vehicle = park.only || chosen; },
+        get vehicle() { return vehicle; },
+        get only() { return park.only || null; },
         // Parkwechsel beendet die laufende Session
-        setPark(id) { buildPark(id); loadBest(); reset(); camX = camY = 0; announce(title()); },
+        setPark(id) { buildPark(id); vehicle = park.only || chosen; loadBest(); reset(); camX = camY = 0; announce(title()); },
         get park() { return parkId; },
+        // true: Free Ride ohne Zeit (zählt nicht für den Rekord). Beendet die laufende Session
+        setFreeRide(on) { freeRide = !!on; reset(); announce(title()); },
+        get freeRide() { return freeRide; },
         T: { keys, get state() { return st; }, start, update, camStep, draw, groundY, TH, segAt, posAt,
-            get rails() { return RAILS; }, get consts() { return { R, VMAX, G, XMAX }; } },
+            get rails() { return RAILS; }, get obst() { return OBST; }, get lips() { return LIPS; },
+            get consts() { return { R, VMAX, G, XMAX, KA, KB, KH, W, POP: POP() }; } },
     };
 })();

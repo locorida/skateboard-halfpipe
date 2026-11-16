@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Skateboard Halfpipe</title>
-<meta name="description" content="Small 3D skateboard and stunt scooter game on canvas: pump for speed, spin, flip and grab in a halfpipe. Plain JavaScript, no dependencies.">
+<meta name="description" content="Small 3D skateboard, stunt scooter and BMX game on canvas: pump for speed, spin, flip and grab in a halfpipe, grind in the street park, jump a scrap car in the BMX park. Plain JavaScript, no dependencies.">
 <style>
   :root { --bg: #eef3ef; --surface: #ffffff; --text: #1d2a22; --muted: #55625a; --accent: #2f6b45; --accent-text: #ffffff; --border: #c2d0c6; }
   @media (prefers-color-scheme: dark) {
@@ -20,6 +20,7 @@
   .lang a[aria-current="true"] { color: var(--text); font-weight: 600; background: var(--surface); }
   .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0 12px; }
   button { font: inherit; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
   button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   button:focus-visible, canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .stage { border-radius: 12px; overflow: hidden; box-shadow: 0 4px 18px rgba(0, 0, 0, .18); }
@@ -49,11 +50,18 @@
     <span id="park-label" data-i18n="parkLabel"></span>
     <button type="button" data-park="pipe" aria-pressed="true" data-i18n="parkPipe"></button>
     <button type="button" data-park="street" aria-pressed="false" data-i18n="parkStreet"></button>
+    <button type="button" data-park="bmx" aria-pressed="false" data-i18n="parkBmx"></button>
   </div>
   <div class="bar" role="group" aria-labelledby="veh-label">
     <span id="veh-label" data-i18n="vehicle"></span>
     <button type="button" data-veh="skate" aria-pressed="true" data-i18n="skate"></button>
     <button type="button" data-veh="scooter" aria-pressed="false" data-i18n="scooter"></button>
+    <button type="button" data-veh="bmx" aria-pressed="false" data-i18n="bmx"></button>
+  </div>
+  <div class="bar" role="group" aria-labelledby="mode-label">
+    <span id="mode-label" data-i18n="modeLabel"></span>
+    <button type="button" data-mode="session" aria-pressed="true" data-i18n="modeSession"></button>
+    <button type="button" data-mode="free" aria-pressed="false" data-i18n="modeFree"></button>
   </div>
   <div class="stage"><canvas id="halfpipe" width="960" height="540" tabindex="0" role="img"></canvas></div>
   <p id="halfpipe-status" class="visually-hidden" role="status" aria-live="polite"></p>
@@ -70,6 +78,8 @@
     <p data-i18n-html="help3"></p>
     <p data-i18n-html="help4"></p>
     <p data-i18n-html="help5"></p>
+    <p data-i18n-html="help6"></p>
+    <p data-i18n-html="help7"></p>
   </div>
 </main>
 <footer><a href="https://github.com/locorida/skateboard-halfpipe" data-i18n="source"></a> · MIT</footer>
@@ -79,30 +89,38 @@
   'use strict';
   const TEXTS = {
     en: {
-      title: 'Skateboard Halfpipe', vehicle: 'Ride:', skate: 'Skateboard', scooter: 'Stunt scooter', jump: 'Jump', source: 'Source code on GitHub',
+      title: 'Skateboard Halfpipe', vehicle: 'Ride:', skate: 'Skateboard', scooter: 'Stunt scooter', bmx: 'BMX', jump: 'Jump', source: 'Source code on GitHub',
       canvas: 'Halfpipe game: skateboard or stunt scooter. Pump for speed, then spin, flip and grab in the air.',
       help1: '<strong>Speed:</strong> hold <kbd>↓</kbd> while riding down a wall (crouch, the bar top right fills up) and let go in the bottom curve (stand up). Good timing shows “Pump!” and gives speed. Holding <kbd>↓</kbd> all the time slows you down uphill.',
       help2: '<strong>In the air:</strong> <kbd>←</kbd><kbd>→</kbd> spin, <kbd>↑</kbd> kickflip / tailwhip, <kbd>↓</kbd> grab. Land straight (spins in steps of 180°, flip finished) or you bail.',
       help3: '<strong>Funbox:</strong> you roll over it. Press <kbd>Space</kbd> (ollie) on the ramp to jump it, at the cost of some speed. On flat ground <kbd>←</kbd><kbd>→</kbd> push.',
       help4: '60 seconds per session. Tricks in a row build up a combo (up to ×5). <kbd>Space</kbd> or tap to drop in. On touch screens use the buttons below the game.',
       help5: '<strong>Street park:</strong> two quarter pipes, a rail and a ledge. Ollie shortly before the rail to land on it: straight is a 50-50, turned 90° a boardslide. You land a bit off balance, so steer back with <kbd>←</kbd><kbd>→</kbd> (keep the marker in the middle), then roll off the end or ollie out.',
-      parkLabel: 'Park:', parkPipe: 'Halfpipe', parkStreet: 'Street park',
+      help6: '<strong>BMX:</strong> works in every park. <kbd>↑</kbd> barspin, <kbd>↓</kbd> in the air tabletop, on the rail a double peg. On flat ground <kbd>←</kbd><kbd>→</kbd> pedal (and brake). <strong>BMX park</strong> (BMX only): a small halfpipe, tyre stacks to bunny hop (<kbd>Space</kbd>) and a scrap car between two ramps. Pick up speed and press <kbd>Space</kbd> at the lip to fly over it. Touch the car or the tyres and you crash.',
+      help7: '<strong>Free ride:</strong> no clock, ride as long as you like. Points still count, the best score only counts in 60-second sessions.',
+      parkLabel: 'Park:', parkPipe: 'Halfpipe', parkStreet: 'Street park', parkBmx: 'BMX park',
+      modeLabel: 'Mode:', modeSession: '60 seconds', modeFree: 'Free ride',
       game: { title: 'Skateboard Halfpipe', start: 'Space or tap: drop in', sub: '60 seconds, as many tricks as you can',
         over: 'Session over', points: 'Points', time: 'Time', combo: 'Combo', record: 'Best', newRecord: 'New record!',
         again: 'Space or tap: again', bail: 'Bail!', bailSub: 'land straight', pump: 'Pump!',
         hint: 'Hold ↓ riding down, let go at the bottom = speed', air: 'Air', grab: 'Grab', tuck: 'Tuck',
         flip: 'Kickflip', whip: 'Tailwhip', double: 'Double ',
-        titleStreet: 'Street session', hintStreet: 'Space before the rail = ollie onto it, then keep your balance with ← →', woof: 'Woof!' }
+        titleStreet: 'Street session', hintStreet: 'Space before the rail = ollie onto it, then keep your balance with ← →', woof: 'Woof!',
+        titleBmx: 'BMX session', hintBmx: 'Space = bunny hop: over the tyres, and at the lip of the ramp over the car',
+        carJump: 'Car jump', tireHop: 'Tyre hop', free: 'Free ride', subFree: 'No clock, just ride' }
     },
     de: {
-      title: 'Skateboard Halfpipe', vehicle: 'Fahrzeug:', skate: 'Skateboard', scooter: 'Stunt-Scooter', jump: 'Sprung', source: 'Quellcode auf GitHub',
+      title: 'Skateboard Halfpipe', vehicle: 'Fahrzeug:', skate: 'Skateboard', scooter: 'Stunt-Scooter', bmx: 'BMX', jump: 'Sprung', source: 'Quellcode auf GitHub',
       canvas: 'Halfpipe-Spiel: Skateboard oder Stunt-Scooter. Schwung holen durch Pumpen, in der Luft Drehungen, Flips und Grabs.',
       help1: '<strong>Schwung holen:</strong> Beim Herunterfahren einer Wand <kbd>↓</kbd> halten (in die Hocke, der Balken oben rechts lädt), unten im Bogen loslassen (strecken). Gut getroffen gibt es „Pump!“ und mehr Tempo. Wer <kbd>↓</kbd> dauernd hält, wird bergauf langsamer.',
       help2: '<strong>In der Luft:</strong> <kbd>←</kbd><kbd>→</kbd> drehen, <kbd>↑</kbd> Kickflip / Tailwhip, <kbd>↓</kbd> Grab. Gerade landen (Drehung in 180°-Schritten, Flip fertig), sonst Sturz.',
       help3: '<strong>Funbox:</strong> rollt man drüber. Mit <kbd>Leertaste</kbd> (Ollie) an der Rampe springst du drüber, das kostet aber Schwung. Am Boden schieben <kbd>←</kbd><kbd>→</kbd> an.',
       help4: '60 Sekunden pro Session, Tricks hintereinander geben Kombo-Bonus (bis ×5). <kbd>Leertaste</kbd> oder Tippen: Drop-in. Auf Touch-Geräten die Knöpfe unter dem Spiel.',
       help5: '<strong>Streetpark:</strong> zwei Quarterpipes, ein Rail und eine Ledge. Kurz vor dem Rail ollien, dann landest du drauf: längs ein 50-50, um 90° gedreht ein Boardslide. Man setzt nie ganz gerade auf, also mit <kbd>←</kbd><kbd>→</kbd> gegensteuern (Strich in der Mitte halten), dann am Ende abrollen oder rausollien.',
-      parkLabel: 'Park:', parkPipe: 'Halfpipe', parkStreet: 'Streetpark',
+      help6: '<strong>BMX:</strong> geht in jedem Park. <kbd>↑</kbd> Barspin, <kbd>↓</kbd> in der Luft Tabletop, auf dem Rail ein Double Peg. Auf flachem Boden mit <kbd>←</kbd><kbd>→</kbd> treten (und bremsen). <strong>BMX-Park</strong> (nur BMX): kleine Halfpipe, Reifenstapel zum Bunnyhop (<kbd>Leertaste</kbd>) und ein Schrottauto zwischen zwei Rampen. Mit Schwung an der Kante <kbd>Leertaste</kbd> drücken, dann fliegst du drüber. Wer Auto oder Reifen berührt, stürzt.',
+      help7: '<strong>Free Ride:</strong> ohne Zeit, fahren so lange du willst. Punkte zählen trotzdem, der Rekord nur in den 60-Sekunden-Sessions.',
+      parkLabel: 'Park:', parkPipe: 'Halfpipe', parkStreet: 'Streetpark', parkBmx: 'BMX-Park',
+      modeLabel: 'Modus:', modeSession: '60 Sekunden', modeFree: 'Free Ride',
       game: {}
     }
   };
@@ -129,14 +147,25 @@
     bt.addEventListener('pointerdown', (e) => { e.preventDefault(); bt.setPointerCapture(e.pointerId); HP.press(k, true); });
     ['pointerup', 'pointercancel'].forEach((type) => bt.addEventListener(type, () => HP.press(k, false)));
   });
+  // Fahrzeug-Knöpfe: im BMX-Park geht nur das BMX, die anderen sind dann gesperrt
+  const syncVehicles = () => document.querySelectorAll('[data-veh]').forEach((o) => {
+    o.setAttribute('aria-pressed', String(o.dataset.veh === HP.vehicle));
+    o.disabled = !!HP.only && o.dataset.veh !== HP.only;
+  });
   document.querySelectorAll('[data-park]').forEach((bt) => bt.addEventListener('click', () => {
     HP.setPark(bt.dataset.park);
     document.querySelectorAll('[data-park]').forEach((o) => o.setAttribute('aria-pressed', String(o === bt)));
+    syncVehicles();
     document.getElementById('halfpipe').focus();
   }));
   document.querySelectorAll('[data-veh]').forEach((bt) => bt.addEventListener('click', () => {
     HP.setVehicle(bt.dataset.veh);
-    document.querySelectorAll('[data-veh]').forEach((o) => o.setAttribute('aria-pressed', String(o === bt)));
+    syncVehicles();
+    document.getElementById('halfpipe').focus();
+  }));
+  document.querySelectorAll('[data-mode]').forEach((bt) => bt.addEventListener('click', () => {
+    HP.setFreeRide(bt.dataset.mode === 'free');
+    document.querySelectorAll('[data-mode]').forEach((o) => o.setAttribute('aria-pressed', String(o === bt)));
     document.getElementById('halfpipe').focus();
   }));
 })();
